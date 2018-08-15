@@ -217,7 +217,7 @@ static int parse_cmdline(int argc, char **argv)
         case 'N':
             /* ...parse number of camera */
             TRACE(INIT, _b("Number of cameras: '%s'"), optarg);
-            CHK_ERR((u32)(cameras_number = atoi(optarg)) < 4, -(errno = EINVAL));
+            CHK_ERR((u32)(cameras_number = atoi(optarg)) < 5, -(errno = EINVAL));
             break;
 
         default:
