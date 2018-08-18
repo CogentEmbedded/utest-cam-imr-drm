@@ -187,7 +187,7 @@ extern int plane_setup(window_data_t *window, int i, texture_data_t *texture, te
  ******************************************************************************/
 
 /* ...connect to a display */
-extern display_data_t * display_create(void);
+extern display_data_t * display_create(const int support_sdtdin);
 
 /* ...cairo device accessor */
 extern cairo_device_t  * __display_cairo_device(display_data_t *display);

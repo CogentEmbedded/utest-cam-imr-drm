@@ -954,7 +954,7 @@ static display_source_cb_t udev_source = {
 #define DISPLAY_OUTPUT_EVENTS_NUM       2
 
 /* ...number of input events expected */
-#define DISPLAY_INPUT_EVENTS_NUM        2
+#define DISPLAY_INPUT_EVENTS_NUM        3
 
 /* ...add handle to a display polling structure */
 static inline int __add_poll_source(int efd, int fd, display_source_cb_t *cb)
@@ -1292,6 +1292,85 @@ err:
     /* ...destroy libinput context */
     libinput_unref(ctx);
 
+    return -1;
+}
+
+/*******************************************************************************
+ * stdin interface
+ ******************************************************************************/
+
+/* ...stdin event processing */
+static void stdin_keyboard_event(display_data_t *display, char in)
+{
+    widget_event_t event;
+    __list_t *list = &display->windows, *item;
+
+    /* enter only */
+    if (in != '\n') {
+        return;
+    }
+
+    TRACE(DEBUG, _x("stdin creating event"));
+    event.type = WIDGET_EVENT_KEY;
+    event.key.type = WIDGET_EVENT_KEY_PRESS;
+    event.key.code = KEY_Z;
+    event.key.state = LIBINPUT_KEY_STATE_PRESSED;
+
+    /* ...go through all windows */
+    for (item = list_first(list); item != list_null(list); item = list_next(list, item))
+    {
+        window_data_t  *window = container_of(item, window_data_t, link);
+        widget_data_t  *widget = &window->widget;
+        widget_info_t  *info = widget->info;
+
+        /* ...ignore window if no input event is registered */
+        if (!info || !info->event)      continue;
+
+        /* ...pass event to root widget (only one consumer?) */
+        if (info->event(widget, window->cdata, &event) != NULL)   break;
+    }
+}
+
+/* ...stdin event processing */
+static int stdin_input_event(display_data_t *display, display_source_cb_t *cb, u32 events)
+{
+    int in;
+
+    /* ...drop event if no reading flag set */
+    if ((events & EPOLLIN) == 0) {
+        return 0;
+    }
+
+    if ((in = getchar()) == EOF) {
+        TRACE(ERROR, _x("getchar failed: %d"), errno);
+    } else {
+        TRACE(DEBUG, _x("stdin char: %c"), in);
+        stdin_keyboard_event(display, in);
+    }
+
+    return 0;
+}
+
+/* ...display source callback structure */
+static display_source_cb_t stdin_source = {
+    .hook = stdin_input_event,
+};
+
+/* ...libinput input devices initialization */
+static int stdin_input_init(display_data_t *display)
+{
+    /* ...add input to the poll-source */
+    if (__add_poll_source(display->i_efd, STDIN_FILENO, &stdin_source) < 0)
+    {
+        TRACE(ERROR, _x("failed to add poll source: %m"));
+        goto err;
+    }
+
+    TRACE(1, _b("stdin interface initialized"));
+
+    return 0;
+
+err:
     return -1;
 }
 
@@ -1666,7 +1745,7 @@ void window_draw(window_data_t *window)
  ******************************************************************************/
 
 /* ...create display data */
-display_data_t * display_create(void)
+display_data_t * display_create(const int support_stdin)
 {
     display_data_t     *display = &__display;
     pthread_attr_t      attr;
@@ -1769,6 +1848,11 @@ display_data_t * display_create(void)
     /* ...initialize libinit input devices */
     input_libinput_init(display);
 
+    /* ...initialuze stdin input */
+    if (support_stdin)
+    {
+        stdin_input_init(display);
+    }
     /* ...create dispatch threads (joinable, default stack size) */
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);

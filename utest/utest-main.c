@@ -59,11 +59,13 @@ char   *imr_dev_name[] = {
     "/dev/video5",
     "/dev/video6",
     "/dev/video7",
+
 };
 
 /* ...default joystick device name  */
 char   *joystick_dev_name = "/dev/input/js0";
 
+int support_stdin = 0;
 /* ...input (VIN) format */
 u32     __vin_format = V4L2_PIX_FMT_UYVY;
 int     __vin_width = 1280, __vin_height = 800;
@@ -87,7 +89,6 @@ char * vin_dev_name[4] = {
 /*******************************************************************************
  * Parameters parsing
  ******************************************************************************/
-
 /* ...parse VIN device names */
 static inline int parse_vin_devices(char *str, char **name, int n)
 {
@@ -146,6 +147,7 @@ static const struct option    options[] = {
     {   "Height",   required_argument,  NULL,   'H' },
     {   "buffers",  required_argument,  NULL,   'n' },
     {   "cameras",  required_argument,  NULL,   'N' },
+    {   "stdin",    no_argument,	NULL,	'i' },
     {   NULL,       0,                  NULL,   0   },
 };
 
@@ -219,7 +221,10 @@ static int parse_cmdline(int argc, char **argv)
             TRACE(INIT, _b("Number of cameras: '%s'"), optarg);
             CHK_ERR((u32)(cameras_number = atoi(optarg)) < 5, -(errno = EINVAL));
             break;
-
+	case 'i':
+            TRACE(INIT, _b("Use stdin to capture camera images"));
+            support_stdin = 1;
+            break;
         default:
             return -EINVAL;
         }
@@ -247,7 +252,7 @@ int main(int argc, char **argv)
     CHK_API(parse_cmdline(argc, argv));
 
     /* ...initialize display subsystem */
-    CHK_ERR(display = display_create(), -errno);
+    CHK_ERR(display = display_create(support_stdin), -errno);
 
     /* ...initialize unit-test application */
     CHK_ERR(app = app_init(display), -errno);
@@ -256,7 +261,7 @@ int main(int argc, char **argv)
     app_thread(app);
 
     TRACE(INIT, _b("application terminated"));
-    
+
     return 0;
 }
 
