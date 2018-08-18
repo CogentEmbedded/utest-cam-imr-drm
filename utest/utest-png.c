@@ -41,6 +41,8 @@ TRACE_TAG(INIT, 1);
 TRACE_TAG(INFO, 1);
 TRACE_TAG(DEBUG, 1);
 
+/* ...camera format */
+extern u32  __vin_format;
 
 /*******************************************************************************
  * PNG storing
@@ -115,6 +117,24 @@ void yuyv_to_rgb(guint8* yuv_data, guint8* rgb_data, ssize_t width, ssize_t heig
         yuv_pixel++;
     }
 }
+void nv16_to_rgb(guint8* nv16_data, guint8* rgb_data, ssize_t width, ssize_t height)
+{
+    guint8* y_pixel = nv16_data;
+    guint8* uv_pixel = nv16_data + (width * height);
+    rgb_pixel_t* rgb_pixel = (rgb_pixel_t*) rgb_data;
+    int i = 0;
+    for (i = 0; i < (width * height / 2); i++)
+    {
+        yuv444_to_rgb888(y_pixel[0], uv_pixel[1], uv_pixel[0],
+                         &(rgb_pixel->r), &(rgb_pixel->g), &(rgb_pixel->b));
+        rgb_pixel++;
+        yuv444_to_rgb888(y_pixel[1], uv_pixel[1], uv_pixel[0],
+                         &(rgb_pixel->r), &(rgb_pixel->g), &(rgb_pixel->b));
+        rgb_pixel++;
+        y_pixel += 2;
+        uv_pixel += 2;
+    }
+}
 static void
 user_write_data(png_structp png_ptr,
         png_bytep data, png_size_t length)
@@ -172,6 +192,13 @@ int store_png(const char *otp_id, int index ,int width, int height, int format, 
     uint8_t* pixbuf         = NULL;
     char* filename = NULL;
 
+    if ((__vin_format != V4L2_PIX_FMT_NV16) &&
+        (__vin_format != V4L2_PIX_FMT_UYVY) &&
+        (__vin_format != V4L2_PIX_FMT_YUYV)) {
+        TRACE(ERROR, _x("unsupported format %x: %m"), __vin_format);
+        return -EINVAL;
+    }
+
     asprintf(&filename, "frame-%s-%03d.png", otp_id, index);
 
     /* ...sanity check - data buffer pointer must be provided */
@@ -216,7 +243,12 @@ int store_png(const char *otp_id, int index ,int width, int height, int format, 
     color_type = PNG_COLOR_TYPE_RGB;
     pixbuf = malloc(stride * height* 3);
 
-    uyvy_to_rgb(data, pixbuf, width, height);
+    if (__vin_format == V4L2_PIX_FMT_NV16)
+        nv16_to_rgb(data, pixbuf, width, height);
+    else if (__vin_format == V4L2_PIX_FMT_UYVY)
+        uyvy_to_rgb(data, pixbuf, width, height);
+    else if (__vin_format == V4L2_PIX_FMT_YUYV)
+        yuyv_to_rgb(data, pixbuf, width, height);
 
     for (i = 0; i < height; i++)
         rows[i] = pixbuf + i * stride;
