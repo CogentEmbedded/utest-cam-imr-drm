@@ -33,6 +33,7 @@
 #include "utest-common.h"
 #include "utest-camera.h"
 #include "utest-vsink.h"
+#include "utest-png.h"
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -54,7 +55,7 @@ TRACE_TAG(DEBUG, 0);
 
 /* ...individual camera buffer pool size */
 #define VIN_BUFFER_POOL_SIZE            5
-
+#define OTP_ID_NAME_SIZE        32
 /*******************************************************************************
  * Local types definitions
  ******************************************************************************/
@@ -100,6 +101,9 @@ typedef struct vin_device
     /* ...conditional variable for busy buffers collection */
     pthread_cond_t          wait;
 
+    char                   otpid[OTP_ID_NAME_SIZE];
+
+    int                    snapshot_index;
 }   vin_device_t;
     
 /* ...decoder data structure */   
@@ -623,6 +627,13 @@ int vin_start(vin_data_t *vin)
     return CHK_API(r);
 }
 
+int vin_device_snapshot(vin_data_t *vin, int i, void *data)
+{
+    vsink_meta_t     *meta = gst_buffer_get_vsink_meta(data);
+    vin_device_t   *dev = &vin->dev[i];
+
+    return store_png(dev->otpid, dev->snapshot_index++,  meta->width, meta->height, meta->format, meta->plane[0]);
+}
 /*******************************************************************************
  * Buffer pool handling
  ******************************************************************************/
@@ -800,6 +811,26 @@ int vin_device_init(vin_data_t *vin, int i, int w, int h, u32 fmt, int size)
     return 0;
 }
 
+int get_otp_id(int vfd, char* id)
+{
+    int ret = -1;
+    static struct v4l2_edid gedid;
+    unsigned char buffer[128] = { 0 };
+    memset(&gedid, 0, sizeof(gedid));
+    gedid.blocks = 1;
+    gedid.edid = buffer;
+
+    ret = ioctl(vfd, VIDIOC_G_EDID, &gedid);
+
+    sprintf(id, "%02x-%02x-%02x-%02x-%02x-%02x",
+            gedid.edid[0], gedid.edid[1], gedid.edid[2],
+            gedid.edid[3], gedid.edid[4], gedid.edid[5]);
+
+    TRACE(1, _b("OTP ID: %s"),id);
+
+    return ret;
+}
+
 /* ...close VIN device (called with lock held) */
 static void __vin_device_close(vin_data_t *vin, int i)
 {
@@ -905,7 +936,10 @@ vin_data_t * vin_init(char **devname, int num, camera_callback_t *cb, void *cdat
             TRACE(ERROR, _x("failed to open device '%s'"), devname[i]);
             goto error_dev;
         }
-
+        if ( get_otp_id(dev->vfd, dev->otpid) != 0 )
+        {
+            TRACE(WARNING, _b("OTP ID is unavailable"));
+        }
         /* ...check capabilities */
         if (__vin_check_caps(dev->vfd) != 0)
         {

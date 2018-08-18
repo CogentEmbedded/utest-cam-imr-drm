@@ -42,6 +42,7 @@
 #include <drm_fourcc.h>
 #include <libudev.h>
 #include <rcar_du_drm.h>
+#include <libinput.h>
 
 /*******************************************************************************
  * Tracing configuration
@@ -179,6 +180,16 @@ typedef struct output_data
 
 }   output_data_t;
 
+/* ...input device data */
+typedef struct input_data
+{
+    /* ...link item in the input list */
+    __list_t                    link;
+
+    /* ...anything with focus? - tbd */
+
+}   input_data_t;
+
 /* ...DRM properties */
 enum display_prop
 {
@@ -225,6 +236,9 @@ struct display_data
     /* ...list of outputs */
     __list_t                    outputs;
 
+    /* ...list of inputs */
+    __list_t                    inputs;
+
     /* ...list of attached windows */
     __list_t                    windows;
 
@@ -237,14 +251,17 @@ struct display_data
     /* ...cairo device associated with display */
     cairo_device_t             *cairo;
 
-    /* ...dispatch loop epoll descriptor */
-    int                         efd;
+    /* ...libinput context */
+    struct libinput            *libinput;
+
+    /* ...dispatch loops epoll descriptors */
+    int                         o_efd, i_efd;
 
     /* ...pending display event status */
     int                         pending;
 
-    /* ...dispatch thread handle */
-    pthread_t                   thread;
+    /* ...input/output dispatch threads handles */
+    pthread_t                   i_thread, o_thread;
 
     /* ...display lock (need that really? - tbd) */
     pthread_mutex_t             lock;
@@ -706,7 +723,7 @@ static output_data_t * create_output(display_data_t *display, drmModeRes *resour
     {
         drmModeModeInfo    *mode = &c->modes[i];
 
-        TRACE(INFO, _b("mode[%d]: %u*%u"), i, mode->hdisplay, mode->vdisplay);
+        TRACE(INFO, _b("mode[%d]: %u*%u@%u"), i, mode->hdisplay, mode->vdisplay, mode->vrefresh);
     }
     
     /* ...put output into list */
@@ -933,30 +950,37 @@ static display_source_cb_t udev_source = {
  * Display dispatch thread
  ******************************************************************************/
 
-/* ...number of events expected */
-#define DISPLAY_EVENTS_NUM      4
+/* ...number of output events expected */
+#define DISPLAY_OUTPUT_EVENTS_NUM       2
+
+/* ...number of input events expected */
+#define DISPLAY_INPUT_EVENTS_NUM        2
 
 /* ...add handle to a display polling structure */
-static inline int display_add_poll_source(display_data_t *display, int fd, display_source_cb_t *cb)
+static inline int __add_poll_source(int efd, int fd, display_source_cb_t *cb)
 {
     struct epoll_event  event;
     
     event.events = EPOLLIN;
     event.data.ptr = cb;
-    return epoll_ctl(display->efd, EPOLL_CTL_ADD, fd, &event);
+    return epoll_ctl(efd, EPOLL_CTL_ADD, fd, &event);
 }
 
 /* ...remove handle from a display polling structure */
-static inline int display_remove_poll_source(display_data_t *display, int fd)
+static inline int __remove_poll_source(int efd, int fd)
 {
-    return epoll_ctl(display->efd, EPOLL_CTL_DEL, fd, NULL);
+    return epoll_ctl(efd, EPOLL_CTL_DEL, fd, NULL);
 }
 
-/* ...display dispatch thread */
-static void * dispatch_thread(void *arg)
+/*******************************************************************************
+ * Display dispatch threads
+ ******************************************************************************/
+
+/* ...display dispatch-output thread */
+static void * __output_thread(void *arg)
 {
     display_data_t     *display = arg;
-    struct epoll_event  event[DISPLAY_EVENTS_NUM];
+    struct epoll_event  event[DISPLAY_OUTPUT_EVENTS_NUM];
 
     /* ...start waiting loop */
     while (1)
@@ -964,7 +988,7 @@ static void * dispatch_thread(void *arg)
         int     i, r;
 
         /* ...wait for an event */
-        if ((r = epoll_wait(display->efd, event, DISPLAY_EVENTS_NUM, -1)) < 0)
+        if ((r = epoll_wait(display->o_efd, event, DISPLAY_OUTPUT_EVENTS_NUM, -1)) < 0)
         {
             /* ...ignore soft interruptions */
             if (errno != EINTR)
@@ -984,10 +1008,49 @@ static void * dispatch_thread(void *arg)
             {
                 dispatch->hook(display, dispatch, event[i].events);
             }
+            }
+	}
+
+    TRACE(INIT, _b("display dispatch-output thread terminated"));
+    return NULL;
+
+error:
+    return (void *)(intptr_t)-errno;
+}
+
+/* ...display input dispatch thread */
+static void * __input_thread(void *arg)
+{
+    display_data_t     *display = arg;
+    struct epoll_event  event[DISPLAY_INPUT_EVENTS_NUM];
+
+    /* ...start waiting loop */
+    while (1)
+    {
+        int     i, r;
+
+        /* ...wait for an event */
+        if ((r = epoll_wait(display->i_efd, event, DISPLAY_INPUT_EVENTS_NUM, -1)) < 0)
+        {
+            /* ...ignore soft interruptions */
+            if (errno != EINTR)
+            {
+                TRACE(ERROR, _x("epoll failed: %m"));
+                goto error;
+            }
+        }
+
+        /* ...process all signalled events */
+        for (i = 0; i < r; i++)
+        {
+            display_source_cb_t *dispatch = event[i].data.ptr;
+
+            /* ...invoke event-processing function (ignore result code) */
+            dispatch->hook(display, dispatch, event[i].events);
         }
     }
 
-    TRACE(INIT, _b("display dispatch thread terminated"));
+    TRACE(INIT, _b("display dispatch-input thread terminated"));
     return NULL;
 
 error:
@@ -1073,7 +1136,7 @@ static inline int input_spacenav_init(display_data_t *display)
     }
     
     /* ...add file-descriptor as display poll source */
-    if (display_add_poll_source(display, fd, &spacenav_source) < 0)
+    if (__add_poll_source(display->i_efd, fd, &spacenav_source) < 0)
     {
         TRACE(ERROR, _x("failed to add poll source: %m"));
         goto error;
@@ -1088,6 +1151,148 @@ error:
     spnav_close();
 
     return -errno;
+}
+
+/*******************************************************************************
+ * Libinput interface
+ ******************************************************************************/
+
+static int __open_restricted(const char *path, int flags, void *data)
+{
+	int fd;
+	fd = open(path, flags);
+	return fd < 0 ? -errno : fd;
+}
+
+static void __close_restricted(int fd, void *data)
+{
+	close(fd);
+}
+
+const struct libinput_interface libinput_interface = {
+	.open_restricted = __open_restricted,
+	.close_restricted = __close_restricted,
+};
+
+
+
+/* ...touch event processing */
+static void libinput_keyboard_event(display_data_t *display, u32 state, u32 key)
+{
+    widget_event_t  event;
+    __list_t       *list = &display->windows, *item;
+
+    TRACE(DEBUG, _x("Keyboard state = %d key = %d"), state, key);
+
+    event.type = WIDGET_EVENT_KEY;
+    event.key.type = WIDGET_EVENT_KEY_PRESS;
+    event.key.code = key;
+    event.key.state = state;
+   
+    /* ...go through all windows (respect SEAT somehow probably? - tbd) */
+	for (item = list_first(list); item != list_null(list); item = list_next(list, item))
+	{
+		window_data_t  *window = container_of(item, window_data_t, link);
+		widget_data_t  *widget = &window->widget;
+		widget_info_t  *info = widget->info;
+
+		/* ...ignore window if no input event is registered */
+		if (!info || !info->event)      continue;
+
+		/* ...pass event to root widget (only one consumer?) */
+		if (info->event(widget, window->cdata, &event) != NULL)   break;
+	}
+}
+
+/* ...libinput input processing */
+static int libinput_input_event(display_data_t *display, display_source_cb_t *cb, u32 events)
+{
+    struct libinput         *ctx = display->libinput;
+    struct libinput_event   *ev;
+
+    /* ...dispatch all collected events */
+    CHK_ERR(libinput_dispatch(ctx) == 0, -1);
+
+    /* ...process all events */
+    while ((ev = libinput_get_event(ctx)) != NULL)
+    {
+        enum libinput_event_type type = libinput_event_get_type(ev);
+        struct libinput_device *dev = libinput_event_get_device(ev);
+
+        switch (type)
+        {
+        case LIBINPUT_EVENT_DEVICE_ADDED:
+            TRACE(INIT, _b("new device added"));
+            break;
+
+        case LIBINPUT_EVENT_DEVICE_REMOVED:
+            TRACE(INIT, _b("device removed"));
+            break;
+        case LIBINPUT_EVENT_KEYBOARD_KEY:
+            {
+                struct libinput_event_keyboard *keyboard = libinput_event_get_keyboard_event(ev);
+                uint32_t key =  libinput_event_keyboard_get_key(keyboard);
+                uint32_t state = libinput_event_keyboard_get_key_state(keyboard);
+                libinput_keyboard_event(display, state, key);
+                break;
+            }
+            break;
+        case LIBINPUT_EVENT_TOUCH_DOWN:
+        case LIBINPUT_EVENT_TOUCH_MOTION:
+        case LIBINPUT_EVENT_TOUCH_UP:
+        {
+            break;
+        }
+        default:
+            /* ...unknown event; ignore */
+            break;
+        }
+
+        libinput_event_destroy(ev);
+    }
+
+    return 0;
+}
+
+/* ...display source callback structure */
+static display_source_cb_t libinput_source = {
+    .hook = libinput_input_event,
+};
+
+/* ...libinput input devices initialization */
+static int input_libinput_init(display_data_t *display)
+{
+    struct libinput    *ctx;
+    int                 fd;
+
+    /* ...create libinput context */
+	CHK_ERR(ctx = libinput_udev_create_context(&libinput_interface, display, display->udev), -1);
+
+    /* ...enable context - add default seat? - tbd */
+    CHK_API(libinput_udev_assign_seat(ctx, "seat0"));
+
+    /* ...get device node descriptor */
+    fd = libinput_get_fd(ctx);
+
+    /* ...add input to the poll-source */
+	if (__add_poll_source(display->i_efd, fd, &libinput_source) < 0)
+	{
+		TRACE(ERROR, _x("failed to add poll source: %m"));
+		goto err;
+	}
+
+    /* ...save input-device client data */
+	display->libinput = ctx;
+
+    TRACE(1, _b("libinput interface initialized: %d"), fd);
+
+    return 0;
+
+err:
+    /* ...destroy libinput context */
+    libinput_unref(ctx);
+
+    return -1;
 }
 
 /*******************************************************************************
@@ -1490,30 +1695,35 @@ display_data_t * display_create(void)
         TRACE(ERROR, _x("failed to initialize DRM: %m"));
         goto error;
     }
-    
-    /* ...initialize inputs/outputs lists */
-    __list_init(&display->outputs);
 
-    /* ...initialize windows list */
+    /* ...initialize inputs/outputs/windows lists */
+    __list_init(&display->outputs);
+    __list_init(&display->inputs);
     __list_init(&display->windows);
 
     /* ...create a display command/response lock */
     pthread_mutex_init(&display->lock, NULL);
 
-    /* ...create polling structure */
-    if ((display->efd = epoll_create(DISPLAY_EVENTS_NUM)) < 0)
+    /* ...create polling structures for input/output dispatch threads */
+    if ((display->i_efd = epoll_create(DISPLAY_INPUT_EVENTS_NUM)) < 0)
     {
         TRACE(ERROR, _x("failed to create epoll: %m"));
-        goto error_disp;
+        goto error;
+    }
+
+    if ((display->o_efd = epoll_create(DISPLAY_OUTPUT_EVENTS_NUM)) < 0)
+    {
+        TRACE(ERROR, _x("failed to create epoll: %m"));
+        goto error;
     }
 
     /* ...add DRM input events poll-source */
-    if (display_add_poll_source(display, display->fd, &drm_source) < 0)
+    if (__add_poll_source(display->o_efd, display->fd, &drm_source) < 0)
     {
         TRACE(ERROR, _x("failed to add DRM poll-source: %m"));
         goto error;
     }
-    
+
     /* ...create udev monitor */
     if ((display->udev_monitor = udev_monitor_new_from_netlink(display->udev, "udev")) == NULL)
     {
@@ -1528,7 +1738,7 @@ display_data_t * display_create(void)
     udev_monitor_filter_add_match_subsystem_devtype(display->udev_monitor, "input", NULL);
 
     /* ...add poll source for udev monitor */
-    if (display_add_poll_source(display, udev_monitor_get_fd(display->udev_monitor), &udev_source) < 0)
+    if (__add_poll_source(display->i_efd, udev_monitor_get_fd(display->udev_monitor), &udev_source) < 0)
     {
         TRACE(ERROR, _x("failed to add udev monitor poll-source: %m"));
         goto error;
@@ -1544,7 +1754,7 @@ display_data_t * display_create(void)
     if (pthread_key_create(&__key_window, NULL) < 0)
     {
         TRACE(ERROR, _x("failed to create TLS key: %m"));
-        goto error_epoll;
+        goto error;
     }
 
     if (create_outputs(display) < 0)
@@ -1555,30 +1765,33 @@ display_data_t * display_create(void)
 
     /* ...initialize extra input devices */
     input_spacenav_init(display);
-    
-    /* ...create dispatch thread (joinable, default stack size) */
+
+    /* ...initialize libinit input devices */
+    input_libinput_init(display);
+
+    /* ...create dispatch threads (joinable, default stack size) */
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-    r = pthread_create(&display->thread, &attr, dispatch_thread, display);
-    pthread_attr_destroy(&attr);
-    if (r != 0)
+
+    if (pthread_create(&display->i_thread, &attr, __input_thread, display) != 0)
     {
-        TRACE(ERROR, _x("thread creation failed: %m"));
-        goto error_epoll;
+        TRACE(ERROR, _x("failed to create input thread: %m"));
+        goto error;
     }
+
+    if (pthread_create(&display->o_thread, &attr, __output_thread, display) != 0)
+    {
+        TRACE(ERROR, _x("failed to create output thread: %m"));
+        goto error;
+    }
+
+    pthread_attr_destroy(&attr);
 
     /* ...wait until display thread starts? */
     TRACE(INIT, _b("DRM display interface initialized"));
 
-    /* ...doesn't look good, actually - don't want to start thread right here */
+    /* ...not sure if it is good idea to start threads here - tbd */
     return display;
-
-error_epoll:
-    /* ...close poll file-handle */
-    close(display->efd);
-
-error_disp:
-    /* ...disconnect display */
 
 error:
     return NULL;
@@ -1725,7 +1938,6 @@ void texture_destroy(texture_data_t *texture)
     free(texture);
 }
 
-#if 0
 /* ...make a screenshot to a texture */
 int window_screenshot(window_data_t *window, texture_data_t *texture)
 {
@@ -1745,7 +1957,6 @@ int window_screenshot(window_data_t *window, texture_data_t *texture)
     
     return 0;
 }
-#endif
 
 /*******************************************************************************
  * Planes support

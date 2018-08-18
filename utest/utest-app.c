@@ -104,6 +104,9 @@ struct app_data
     
     /* ...frame number */
     u32                 frame_num;
+
+    int                 dump_png;
+
 };
 
 /*******************************************************************************
@@ -221,6 +224,10 @@ static int app_input_process(void *data, int i, GstBuffer *buffer)
             /* ...get buffer from the head of input queue */
             buf = g_queue_pop_head(&app->input[i]);
 
+            //vin_get_otp_id
+            if (app->dump_png) {
+                vin_device_snapshot(app->vin, i, buf);
+            }
 #if 0
             sprintf(fname, "/tmp/camera-%04d.uyvy", i);
             vmeta = gst_buffer_get_vsink_meta(buf);
@@ -236,6 +243,7 @@ static int app_input_process(void *data, int i, GstBuffer *buffer)
             /* ...update readiness flag */
             (g_queue_is_empty(&app->input[i]) ? app->input_ready |= (1 << i) : 0);
         }
+        app->dump_png = 0;
     }
     
     /* ...release application lock */
@@ -594,6 +602,47 @@ void * app_thread(void *arg)
     
     return NULL;
 }
+static inline widget_data_t * app_kbd_event(app_data_t *app, widget_data_t *widget, widget_key_event_t *event)
+{
+    if (event->type == WIDGET_EVENT_KEY_PRESS && event->state)
+    {
+        switch (event->code)
+        {
+        case KEY_ESC:
+        case KEY_SPACE:
+        case KEY_Z:
+            {
+                pthread_mutex_lock(&app->lock);
+                app->dump_png = 1;
+                pthread_mutex_unlock(&app->lock);
+                TRACE(1, _b("take camera snapshot"));
+            }
+            break;
+
+        default:
+            /* ...pass to IMR engine */
+            break;
+        }
+    }
+
+    /* ...always keep focus */
+    return widget;
+}
+
+/* ...event-processing function */
+static widget_data_t * app_input_event(widget_data_t *widget, void *cdata, widget_event_t *event)
+{
+    app_data_t     *app = cdata;
+    /* ...pass event to GUI layer first */
+
+    switch (WIDGET_EVENT_TYPE(event->type))
+    {
+    case WIDGET_EVENT_KEY:
+        return app_kbd_event(app, widget, &event->key);
+    default:
+        return NULL;
+    }
+}
 
 /*******************************************************************************
  * Window parameters
@@ -608,6 +657,7 @@ static window_info_t app_main_info = {
 /* ...main window widget parameters (input-interface + GUI?) */
 static widget_info_t app_main_info2 = {
     .init = app_context_init,
+    .event = app_input_event,
 };
 
 /*******************************************************************************
@@ -626,6 +676,7 @@ app_data_t * app_init(display_data_t *display)
     /* ...set output device dimensions */
     app_main_info.width = __vsp_width;
     app_main_info.height = __vsp_height;
+    app->dump_png = 0;
 
     /* ...initialize data access lock */
     pthread_mutexattr_init(&attr);

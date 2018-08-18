@@ -35,6 +35,7 @@ target_link_libraries(utest-cam-imr-drm
   "mmngrbuf"
   "z"
   "spnav"
+  "input"
   )
 
 set_target_properties(utest-cam-imr-drm PROPERTIES SKIP_BUILD_RPATH ON)
