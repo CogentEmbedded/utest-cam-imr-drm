@@ -280,9 +280,9 @@ static inline int __vin_check_caps(int vfd)
 }
 
 /* ...prepare VIN module for operation */
-static inline int vin_set_formats(int vfd, int width, int height, u32 format)
+static inline int vin_set_formats(int vfd, unsigned int width, unsigned int height, u32 format)
 {
-	struct v4l2_format  fmt;
+    struct v4l2_format  fmt;
     struct v4l2_cropcap cropcap;
     struct v4l2_crop crop;
 
@@ -294,8 +294,9 @@ static inline int vin_set_formats(int vfd, int width, int height, u32 format)
         crop.c = cropcap.defrect; /* reset to default */
 
         /* center window */
-        crop.c.left = (cropcap.bounds.width - width) / 2;
-        crop.c.top = (cropcap.bounds.height - height) / 2;
+        crop.c.left = (cropcap.bounds.width > width)   ? ((cropcap.bounds.width - width) / 2)  : 0;
+        crop.c.top  = (cropcap.bounds.height > height) ? ((cropcap.bounds.height - height) / 2): 0;
+
         crop.c.width = width;
         crop.c.height = height;
         CHK_API(ioctl(vfd, VIDIOC_S_CROP, &crop));
@@ -304,8 +305,8 @@ static inline int vin_set_formats(int vfd, int width, int height, u32 format)
     /* ...set output format (single-plane NV12/NV16/UYVY? - tbd) */
     memset(&fmt, 0, sizeof(fmt));
     fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	fmt.fmt.pix.pixelformat = format;
-	fmt.fmt.pix.field = V4L2_FIELD_ANY;
+    fmt.fmt.pix.pixelformat = format;
+    fmt.fmt.pix.field = V4L2_FIELD_ANY;
     fmt.fmt.pix.width = width;
     fmt.fmt.pix.height = height;
     CHK_API(ioctl(vfd, VIDIOC_S_FMT, &fmt));
@@ -394,7 +395,7 @@ static inline int vin_destroy_buffers(int vfd, vin_buffer_t *pool, int num)
     {
         munmap(pool[j].data, pool[j].length);
     }
-    
+
     /* ...release kernel-allocated buffers */
     memset(&reqbuf, 0, sizeof(reqbuf));
     reqbuf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -749,7 +750,7 @@ int vin_device_init(vin_data_t *vin, int i, int w, int h, u32 fmt, int size)
 
     /* ...allocate output buffers */
     CHK_API(vin_allocate_buffers(dev->vfd, dev->pool, size));
-    
+
     /* ...mark device is active */
     dev->active = 1;
 
