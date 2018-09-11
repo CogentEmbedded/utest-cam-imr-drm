@@ -158,7 +158,7 @@ static int parse_cmdline(int argc, char **argv)
     int     opt;
 
     /* ...process command-line parameters */
-    while ((opt = getopt_long(argc, argv, "d:v:r:f:w:h:W:H:n:N:", options, &index)) >= 0)
+    while ((opt = getopt_long(argc, argv, "d:v:r:f:w:h:W:H:n:N:i", options, &index)) >= 0)
     {
         switch (opt)
         {
