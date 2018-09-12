@@ -280,9 +280,9 @@ static inline int __vin_check_caps(int vfd)
 }
 
 /* ...prepare VIN module for operation */
-static inline int vin_set_formats(int vfd, unsigned int width, unsigned int height, u32 format)
+static inline int vin_set_formats(int vfd, int width, int height, u32 format)
 {
-    struct v4l2_format  fmt;
+	struct v4l2_format  fmt;
     struct v4l2_cropcap cropcap;
     struct v4l2_crop crop;
 
@@ -291,12 +291,11 @@ static inline int vin_set_formats(int vfd, unsigned int width, unsigned int heig
     cropcap.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     if (0 == CHK_API(ioctl(vfd, VIDIOC_CROPCAP, &cropcap))) {
         crop.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        crop.c = cropcap.defrect; /* reset to default */
+        crop.c = cropcap.bounds;
 
         /* center window */
-        crop.c.left = (cropcap.bounds.width > width)   ? ((cropcap.bounds.width - width) / 2)  : 0;
-        crop.c.top  = (cropcap.bounds.height > height) ? ((cropcap.bounds.height - height) / 2): 0;
-
+        crop.c.left = (cropcap.bounds.width - width) / 2;
+        crop.c.top = (cropcap.bounds.height - height) / 2;
         crop.c.width = width;
         crop.c.height = height;
         CHK_API(ioctl(vfd, VIDIOC_S_CROP, &crop));
