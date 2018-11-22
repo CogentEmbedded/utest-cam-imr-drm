@@ -69,7 +69,7 @@ typedef struct vsink_meta
 
     /* ...planes strides */
     u32                 stride[GST_VIDEO_MAX_PLANES];
-    
+
 }   vsink_meta_t;
 
 /* ...metadata API type accessor */
@@ -97,15 +97,15 @@ typedef struct vsink_callback
 {
     /* ...buffer allocation callback */
     int         (*allocate)(video_sink_t *vsink, GstBuffer *buffer, void *data);
-    
+
     /* ...buffer processing callback */
     int         (*process)(video_sink_t *vsink, GstBuffer *buffer, void *data);
 
     /* ...buffer destruction callback */
     void        (*destroy)(video_sink_t *vsink, GstBuffer *buffer, void *data);
-    
+
 }   vsink_callback_t;
-    
+
 /* ...custom video sink node creation */
 extern video_sink_t * video_sink_create(GstCaps *caps, const vsink_callback_t *cb, void *data);
 

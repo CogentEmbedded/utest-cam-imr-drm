@@ -66,10 +66,10 @@ struct window_info
 
     /* ...context initialization function */
     int               (*init)(display_data_t *, window_data_t *, void *);
-    
+
     /* ...resize hook */
     void              (*resize)(display_data_t *, void *);
-    
+
     /* ...drawing completion callback */
     void              (*redraw)(display_data_t *, void *);
 
@@ -154,7 +154,7 @@ struct texture_data
 {
     /* ...frame-buffer id */
     uint32_t            fb_id;
-    
+
     /* ...DMA file-descriptors (per-plane; up to 3 planes) */
     int                 dmafd[3];
 

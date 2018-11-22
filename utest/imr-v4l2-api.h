@@ -1,7 +1,7 @@
 /*
  * rcar_imr.c  --  R-Car IMR-X2(4) driver public interface
  *
- * Copyright (C) 2015 Cogent Embedded, Inc.  <source@cogentembedded.com>
+ * Copyright (C) 2015-2018 Cogent Embedded, Inc.  <source@cogentembedded.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -130,17 +130,17 @@ struct imr_auto_coord_correction {
         struct {
             u16         v, u;
         };
-        
+
         struct {
             s16         Y, X;
-        };    
+        };
     };
     union {
         struct {
             u8          lofs, lscal;
             u16         pad;
         };
-        
+
         struct {
             u8          vrofs, vrscal;
             u8          cbofs, cbscal;
@@ -154,10 +154,10 @@ struct imr_auto_luce_clce_coord {
         struct {
             u16         v, u;
         };
-        
+
         struct {
             s16         Y, X;
-        };    
+        };
     };
 
     u8          lofs, lscal;
@@ -177,12 +177,12 @@ struct imr_abs_coord_correction {
             u8          lofs, lscal;
             u16         pad;
         };
-        
+
         struct {
             u8          vrofs, vrscal;
             u8          cbofs, cbscal;
         };
-    };    
+    };
 }   __attribute__((packed));
 
 /* ...absolute coordinates with full correction */
@@ -195,7 +195,7 @@ struct imr_abs_coord_luce_clce {
     u8          cbofs, cbscal;
 
 }   __attribute__((packed));
-    
+
 /*******************************************************************************
  * Cropping parameters
  ******************************************************************************/
@@ -204,7 +204,7 @@ struct imr_crop {
     u16             xmin, ymin;
     u16             xmax, ymax;
 }   __attribute__((packed));
-    
+
 /*******************************************************************************
  * Private IOCTL codes
  ******************************************************************************/

@@ -1,9 +1,9 @@
 /*******************************************************************************
- * utest-camera.h
+ * utest-camera-math.c
  *
- * Camera interface for surround view application
+ * IMR unit-test application camera math function
  *
- * Copyright (c) 2015 Cogent Embedded Inc. ALL RIGHTS RESERVED.
+ * Copyright (c) 2018 Cogent Embedded Inc. ALL RIGHTS RESERVED.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,45 +24,44 @@
  * THE SOFTWARE.
  *******************************************************************************/
 
-#ifndef __UTEST_CAMERA_H
-#define __UTEST_CAMERA_H
+#define MODULE_TAG                      CAMERA_MATH
 
-/* ...opaque camera data handle */
-typedef struct camera_data  camera_data_t;
+#include "utest-common.h"
+#include "utest-camera-math.h"
 
 /*******************************************************************************
- * Camera interface
+ * Tracing configuration
  ******************************************************************************/
 
-typedef struct camera_callback
+TRACE_TAG(INIT, 1);
+TRACE_TAG(INFO, 1);
+TRACE_TAG(DEBUG, 1);
+
+void project_world_to_camera(camera_intrinsic_t *intrinsic, float x, float y, float z, float* x_result, float* y_result)
 {
-    /* ...buffer allocation hook */
-    int       (*allocate)(void *data, int id, GstBuffer *buffer);
+    float l = sqrtf((x*x) + (y*y));
+    float t = 0.0f;
 
-    /* ...buffer preparation hook */
-    int       (*prepare)(void *data, int id, GstBuffer *buffer);
-
-    /* ...buffer processing hook */
-    int       (*process)(void *data, int id, GstBuffer *buffer);
-
-}   camera_callback_t;
-
-/* ...camera data source callback structure */
-typedef struct camera_source_callback
-{
-    /* ...end-of-stream signalization */
-    void      (*eos)(void *data);
-
-    /* ...packet processing hook (ethernet frame) */
-    void      (*pdu)(void *data, int id, u8 *pdu, u16 len, u64 ts);
-
-    /* ...packet processing hook (CAN message) */
-    void      (*can)(void *data, u32 can_id, u8 *msg, u8 dlc, u64 ts);
-
-}   camera_source_callback_t;
-
-/* ...camera set initialization function */
-typedef GstElement * (*camera_init_func_t)(const camera_callback_t *cb, void *cdata);
+    if (l != 0.0f)
+    {
+        t = atan2f(l, z);
+        float il = 1.0f / l;
+        x *= il;
+        y *= il;
+    }
 
 
-#endif  /* __UTEST_CAMERA_H */
+    float t2 = t * t;
+    float t3 = t * t2;
+    float t5 = t3 * t2;
+    float t7 = t5 * t2;
+    float t9 = t7 * t2;
+
+    float r = t + (intrinsic->d[0] * t3) + (intrinsic->d[1] * t5) + (intrinsic->d[2] * t7) + (intrinsic->d[3] * t9);
+
+    float x_out = r * x;
+    float y_out = r * y;
+
+    *x_result = (intrinsic->fx * x_out) + intrinsic->cx;
+    *y_result = (intrinsic->fy * y_out) + intrinsic->cy;
+}

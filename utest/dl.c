@@ -3,7 +3,7 @@
  *
  * Display list for rendering
  *
- * Copyright (c) 2017 Cogent Embedded Inc. ALL RIGHTS RESERVED.
+ * Copyright (c) 2017-2018 Cogent Embedded Inc. ALL RIGHTS RESERVED.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -149,4 +149,9 @@ dl_strip_abs_t * dl_abs_strip_create(display_list_t *dl, int n)
 
     /* ...return pointer to a strip data */
     return &c->v[0];
+}
+
+u32 set_opcode(int n)
+{
+    return IMR_OP_TRI(n);
 }

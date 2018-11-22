@@ -4,7 +4,7 @@ project(cam-imr-drm)
 # ...some external headers having no corresponding "FindXXX.cmake" facilities
 SET(DRM_INCLUDE_DIR "${CMAKE_SYSROOT}/usr/include/drm")
 SET(GSTREAMER_INCLUDE_DIR "${CMAKE_SYSROOT}/usr/include/gstreamer-1.0" "${CMAKE_SYSROOT}/usr/lib/gstreamer-1.0/include")
-SET(GLIB_INCLUDE_DIR "${CMAKE_SYSROOT}/usr/include/glib-2.0" "${CMAKE_SYSROOT}/usr/lib/glib-2.0/include" "${CMAKE_SYSROOT}/usr/lib64/glib-2.0/include" "/usr/lib/x86_64-linux-gnu/glib-2.0/include")
+SET(GLIB_INCLUDE_DIR "${CMAKE_SYSROOT}/usr/include/glib-2.0" "${CMAKE_SYSROOT}/usr/lib/glib-2.0/include" "${CMAKE_SYSROOT}/usr/lib64/glib-2.0/include")
 SET(CAIRO_INCLUDE_DIR "${CMAKE_SYSROOT}/usr/include/cairo" "${CMAKE_SYSROOT}/usr/include/pango-1.0")
 
 # ...common libraries
@@ -14,6 +14,7 @@ SET(GSTREAMER_LIBRARIES "gstreamer-1.0" "gstrtp-1.0" "gstpbutils-1.0" "gstbase-1
 SET(CAIRO_LIBRARIES "cairo"  "pango-1.0" "pangocairo-1.0")
 SET(MMNGR_LIBRARIES "mmngr" "mmngrbuf")
 SET(WNDSYS_LIBRARIES "drm" "udev")
+SET(YAML_LIBRARIES "yaml")
 
 # ...force stripping of the output files during installation
 SET(CPACK_STRIP_FILES TRUE)

@@ -67,7 +67,7 @@ int intern_trace(const char *format, ...)
     static char         buffer[4096];
     char               *p = buffer;
     int                 n = sizeof(buffer), k;
-    
+
     /* ...retrieve value of monotonic clock */
     clock_gettime(CLOCK_MONOTONIC, &ts);
 
@@ -78,7 +78,7 @@ int intern_trace(const char *format, ...)
     //k = snprintf(p, n, "[%02u.%06u]:%d: ", (u32)ts.tv_sec, (u32)ts.tv_nsec / 1000, sched_getcpu());
     k = snprintf(p, n, "[%02u.%06u]: ", (u32)ts.tv_sec, (u32)ts.tv_nsec / 1000);
     p += k, n -= k;
-    
+
     /* ...output format string */
     va_start(args, format);
     k = vsnprintf(p, n, format, args);
@@ -89,7 +89,7 @@ int intern_trace(const char *format, ...)
     (n > 0 ? *p++ = '\n' : 0);
 
     write(intern_trace_fd, buffer, p - buffer);
-    
+
     /* ...release tracing lock */
     pthread_mutex_unlock(&intern_trace_mutex);
 
@@ -106,7 +106,7 @@ void intern_trace_init(const char *banner)
     {
         intern_trace_fd = STDOUT_FILENO;
     }
-    
+
     /* ...output banner */
     intern_trace("%s", banner);
 }

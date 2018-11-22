@@ -35,6 +35,7 @@
 #include <mmngr_user_public.h>
 #include <mmngr_buf_user_public.h>
 #include <linux/videodev2.h>
+#include "utest-common-math.h"
 
 /*******************************************************************************
  * Tracing configuration
@@ -66,7 +67,7 @@ struct vsp_mem
 
     /* ...user-accessible pointer */
     unsigned long       user_virt_addr;
-    
+
     /* ...physical address(es?) */
     unsigned long       phy_addr, hard_addr;
 
@@ -78,29 +79,30 @@ struct vsp_mem
 
     /* ...number of planes */
     int                 planes;
-    
+
     /* ...number of planes */
     u32                 offset[3];
 };
-    
+
 /*******************************************************************************
  * Memory allocation
  ******************************************************************************/
 
 /* ...allocate contiguous block */
-vsp_mem_t * vsp_mem_alloc(u32 size)
+vsp_mem_t * vsp_mem_alloc(u32 size, int cached)
 {
     vsp_mem_t      *mem;
     int             err;
+    unsigned long   flags = (cached ? MMNGR_VA_SUPPORT_CACHED : MMNGR_VA_SUPPORT);
 
     /* ...allocate contiguous memory descriptor */
     CHK_ERR(mem = calloc(1, sizeof(*mem)), (errno = ENOMEM, NULL));
 
     /* ...all chunks must be page-size aligned */
-    size = (size + 4095) & ~4095;
+    size = CHECK_MULTIPLICITY(size, 4095);
 
     /* ...allocate physically contiguous memory */
-    switch (err = mmngr_alloc_in_user(&mem->id, size, &mem->phy_addr, &mem->hard_addr, &mem->user_virt_addr, MMNGR_VA_SUPPORT))
+    switch (err = mmngr_alloc_in_user(&mem->id, size, &mem->phy_addr, &mem->hard_addr, &mem->user_virt_addr, flags))
     {
     case R_MM_OK:
         /* ...memory allocated successfully */
@@ -113,7 +115,7 @@ vsp_mem_t * vsp_mem_alloc(u32 size)
         TRACE(ERROR, _x("failed to allocated contiguous memory block (%u bytes)"), size);
         errno = ENOMEM;
         break;
-        
+
     default:
         /* ...internal allocation error */
         TRACE(ERROR, _x("memory allocation error (%u bytes), err=%d"), size, err);
@@ -129,7 +131,7 @@ void vsp_mem_free(vsp_mem_t *mem)
 {
     /* ...free allocated memory */
     mmngr_free_in_user(mem->id);
-    
+
     TRACE(DEBUG, _b("destroyed block #%X (va=%p)"), mem->id, (void *)(uintptr_t)mem->user_virt_addr);
 
     /* ...destroy memory descriptor */
@@ -140,6 +142,18 @@ void vsp_mem_free(vsp_mem_t *mem)
 void * vsp_mem_ptr(vsp_mem_t *mem)
 {
     return (void *)(uintptr_t)mem->user_virt_addr;
+}
+
+/* ...cache maintenance operation */
+void vsp_mem_inv(vsp_mem_t *mem, size_t offset, size_t len)
+{
+    mmngr_inval(mem->id, offset, len);
+}
+
+/* ...cache maintenance operation */
+void vsp_mem_wb(vsp_mem_t *mem, size_t offset, size_t len)
+{
+    mmngr_flush(mem->id, offset, len);
 }
 
 /* ...memory buffer physical address */
@@ -171,7 +185,7 @@ vsp_dmabuf_t * vsp_dmabuf_export(vsp_mem_t *mem, u32 offset, u32 size)
     hard_addr = mem->hard_addr + offset;
 
     /* ...exported chunks must be page-size aligned (tbd) */
-    size = (size + 4095) & ~4095;
+    size = CHECK_MULTIPLICITY(size, 4095);
 
     /* ...export memory as file-descriptor */
 #ifdef __VSPM_GEN3
@@ -183,7 +197,7 @@ vsp_dmabuf_t * vsp_dmabuf_export(vsp_mem_t *mem, u32 offset, u32 size)
     case R_MM_OK:
         TRACE(DEBUG, _b("exported block[%X] (fd=%d): pa=0x%08lx, size=%u"), dmabuf->id, dmabuf->fd, hard_addr, size);
         return dmabuf;
-        
+
     default:
         TRACE(ERROR, _x("failed to export DMA-fd: %d"), err);
         errno = EBADF;
@@ -258,7 +272,7 @@ static inline int __vsp_pixfmt_planes(int w, int h, u32 fmt, u32 *size, u32 *str
 }
 
 /* ...allocate contiguous memory buffer pool */
-int vsp_allocate_buffers(int w, int h, u32 fmt, vsp_mem_t **output, int num)
+int vsp_allocate_buffers(int w, int h, u32 fmt, vsp_mem_t **output, int num, int cached)
 {
     u32     size;
     int     i, n;
@@ -283,11 +297,11 @@ int vsp_allocate_buffers(int w, int h, u32 fmt, vsp_mem_t **output, int num)
     {
         offset[i] = offset[i - 1] + psize[i - 1];
     }
-    
+
     /* ...allocate memory descriptors */
     for (i = 0; i < num; i++)
     {
-        if ((output[i] = vsp_mem_alloc(size)) == NULL)
+        if ((output[i] = vsp_mem_alloc(size, cached)) == NULL)
         {
             TRACE(ERROR, _x("failed to allocate buffer pool"));
             goto error;
@@ -295,10 +309,10 @@ int vsp_allocate_buffers(int w, int h, u32 fmt, vsp_mem_t **output, int num)
 
         /* ...set planes offsets */
         memcpy(output[i]->offset, offset, sizeof(u32) * n);
-        
+
         TRACE(DEBUG, _b("allocate buffer: fmt=%c%c%c%c, size=%u, addr=0x%08lX"), __v4l2_fmt(fmt), size, output[i]->hard_addr);
     }
-    
+
     return 0;
 
 error:
@@ -332,8 +346,6 @@ int vsp_buffer_export(vsp_mem_t *mem, int w, int h, u32 fmt, int *dmafd, u32 *of
 
         return 0;
     }
-    
-    //CHK_ERR(!mem->dmabuf, -(errno = EBUSY));    
 
     /* ...allocate dma-buffers array */
     CHK_ERR(mem->dmabuf = calloc(n, sizeof(vsp_dmabuf_t *)), -(errno = ENOMEM));
@@ -342,7 +354,7 @@ int vsp_buffer_export(vsp_mem_t *mem, int w, int h, u32 fmt, int *dmafd, u32 *of
     {
         TRACE(INFO, _b("plane-%d: fmt=%c%c%c%c, size=%u, stride=%u"), i, __v4l2_fmt(fmt), size[i], stride[i]);
     }
-    
+
     /* ...allocate required amount of planes */
     for (i = 0, o = 0; i < n; i++)
     {
@@ -365,7 +377,7 @@ int vsp_buffer_export(vsp_mem_t *mem, int w, int h, u32 fmt, int *dmafd, u32 *of
 
     return 0;
 
-error:    
+error:
     /* ...destroy all buffers exported thus far */
     while (i--)
     {
@@ -374,6 +386,53 @@ error:
 
     /* ...destroy DMA buffers descriptors */
     free(mem->dmabuf);
-    
+
+    return -errno;
+}
+
+/* ...allocate contiguous memory buffer pool */
+int vsp_buffer_export_set_offset(vsp_mem_t *mem, int w, int h, u32 fmt, int *dmafd, u32 *offset, u32 *stride, u32 in_offset)
+{
+    u32     size[GST_VIDEO_MAX_PLANES], o;
+    int     n;
+    int     i;
+
+    /* ...verify format */
+    CHK_ERR((n = __vsp_pixfmt_planes(w, h, fmt, size, stride)) > 0, -(errno = EINVAL));
+
+    /* ...allocate dma-buffers array */
+    CHK_ERR(mem->dmabuf = calloc(n, sizeof(vsp_dmabuf_t *)), -(errno = ENOMEM));
+
+   /* ...allocate required amount of planes */
+    for (i = 0, o = in_offset; i < n; i++)
+    {
+        /* ...export single plane (may fail if not page-size aligned - tbd) */
+        if ((mem->dmabuf[i] = vsp_dmabuf_export(mem, o, size[i])) == NULL)
+        {
+            TRACE(ERROR, _x("failed to export DMA buffer: %m"));
+            goto error;
+        }
+        else
+        {
+            dmafd[i] = mem->dmabuf[i]->fd;
+            offset[i] = o;
+            o += size[i];
+            TRACE(DEBUG, _b("plane-%d: fd=%d, offset=%X, size=%u, stride=%u"), i, dmafd[i], offset[i], size[i], stride[i]);
+        }
+    }
+
+    TRACE(INFO, _b("exported memory (format=%c%c%c%c, %d planes)"), __v4l2_fmt(fmt), n);
+
+    return 0;
+error:
+    /* ...destroy all buffers exported thus far */
+    while (i--)
+    {
+        vsp_dmabuf_unexport(mem->dmabuf[i]);
+    }
+
+    /* ...destroy DMA buffers descriptors */
+    free(mem->dmabuf);
+
     return -errno;
 }

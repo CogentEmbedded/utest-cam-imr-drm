@@ -3,7 +3,7 @@
  *
  * IMR unit-test application common definitions
  *
- * Copyright (c) 2015 Cogent Embedded Inc. ALL RIGHTS RESERVED.
+ * Copyright (c) 2015-2018 Cogent Embedded Inc. ALL RIGHTS RESERVED.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -33,12 +33,17 @@
 
 #include "utest-drm-display.h"
 #include "utest-camera.h"
+#include "utest-camera-math.h"
 
 /*******************************************************************************
  * Forward declarations
  ******************************************************************************/
 
 typedef struct app_data   app_data_t;
+
+/* ...number of cameras */
+#define CAMERAS_NUMBER                  4
+#define IMR_NUMBER                  (CAMERAS_NUMBER * 2)
 
 /*******************************************************************************
  * Global configuration options
@@ -68,6 +73,11 @@ extern int  __vsp_width, __vsp_height;
 /* ...number of cameras */
 extern int cameras_number;
 
+/* ...camera intrinsic list */
+extern camera_intrinsic_t camera_intrinsic_list[CAMERAS_NUMBER];
+
+/* ...mesh preparation type */
+extern bool prepare_rectified_mesh;
 /*******************************************************************************
  * Public module API
  ******************************************************************************/

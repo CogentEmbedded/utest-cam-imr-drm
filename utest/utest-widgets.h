@@ -48,7 +48,7 @@ typedef struct gui_menu         gui_menu_t;
 /* ...generic double-linked list items */
 struct gui_list
 {
-    gui_list_t     *next, *prev;   
+    gui_list_t     *next, *prev;
 };
 
 /* ...list head initialization */
@@ -140,7 +140,7 @@ static inline void gui_menu_item_remove(gui_menu_t *menu, gui_menu_item_t *item)
 static inline gui_menu_item_t * gui_menu_first(gui_menu_t *menu)
 {
     gui_list_t     *list = menu->list.next;
-    
+
     return (list == &menu->list ? NULL : container_of(list, gui_menu_item_t, list));
 }
 
@@ -148,7 +148,7 @@ static inline gui_menu_item_t * gui_menu_first(gui_menu_t *menu)
 static inline gui_menu_item_t * gui_menu_next(gui_menu_t *menu, gui_menu_item_t *item)
 {
     gui_list_t     *list = item->list.next;
-    
+
     return (list == &menu->list ? NULL : container_of(list, gui_menu_item_t, list));
 }
 
@@ -156,7 +156,7 @@ static inline gui_menu_item_t * gui_menu_next(gui_menu_t *menu, gui_menu_item_t 
 static inline gui_menu_item_t * gui_menu_last(gui_menu_t *menu)
 {
     gui_list_t     *list = menu->list.prev;
-    
+
     return (list == &menu->list ? NULL : container_of(list, gui_menu_item_t, list));
 }
 
@@ -164,7 +164,7 @@ static inline gui_menu_item_t * gui_menu_last(gui_menu_t *menu)
 static inline gui_menu_item_t * gui_menu_prev(gui_menu_t *menu, gui_menu_item_t *item)
 {
     gui_list_t     *list = item->list.prev;
-    
+
     return (list == &menu->list ? NULL : container_of(list, gui_menu_item_t, list));
 }
 
@@ -186,7 +186,7 @@ typedef struct gui_submenu_item
 /* ...anything else? */
 
 /*******************************************************************************
- * Public menu API - tbd 
+ * Public menu API - tbd
  ******************************************************************************/
 
 #endif  /* __UTEST_WIDGETS_H */

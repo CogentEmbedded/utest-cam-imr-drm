@@ -3,7 +3,7 @@
  *
  * ADAS unit-test common definitions
  *
- * Copyright (c) 2015 Cogent Embedded Inc. ALL RIGHTS RESERVED.
+ * Copyright (c) 2015-2018 Cogent Embedded Inc. ALL RIGHTS RESERVED.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -36,6 +36,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <stdarg.h>
 #include <unistd.h>
 #include <errno.h>
@@ -43,6 +44,7 @@
 #include <limits.h>
 #include <pthread.h>
 #include <sched.h>
+#include <math.h>
 
 #include <gst/gst.h>
 #include <gst/video/video-info.h>
@@ -174,7 +176,7 @@ extern void intern_trace_init(const char *banner);
     __intern_trace(fmt, ##__VA_ARGS__);                             \
     pthread_setcancelstate(__oldstate, NULL);                       \
 })
-    
+
 /*******************************************************************************
  * Tagged tracing formats
  ******************************************************************************/
@@ -261,7 +263,7 @@ static inline u32 __get_cpu_cycles(void)
 static inline void __pm_init(void)
 {
     if (1)  return;
-    
+
     u32     v = 0x1;
     asm volatile("msr pmcr_el0, %0" :: "r" (v));
 
@@ -315,7 +317,7 @@ typedef struct pm_ctr
 
     /* ...last timestamp value */
     u32                 ts;
-    
+
 }   pm_ctr_t;
 
 /* ...reset performance counter */
@@ -331,7 +333,7 @@ static inline u32 __pm_update(pm_ctr_t *p, u32 ts, const int e)
     u32     acc = p->acc;
     u32     t0 = p->ts;
     u32     delta = (u32)(ts - t0);
-    
+
     /* ...check if accumulator is initialized */
     if (acc == 0)
     {
@@ -356,7 +358,7 @@ static inline u32 __pm_get_avg(pm_ctr_t *p, const int e)
 {
     return (p->acc + (1 << (e - 1))) >> e;
 }
-    
+
 /*******************************************************************************
  * Auxiliary helpers (to be moved somewhere to "utest-debug.h" - tbd)
  ******************************************************************************/
@@ -383,7 +385,7 @@ static inline u32 __pm_get_avg(pm_ctr_t *p, const int e)
     _err = glGetError();                                                    \
     (_err != GL_NO_ERROR ? TRACE(ERROR, _x("GL error: %X"), _err), 0 : 1);  \
 })
-    
+
 #define xmalloc(size)                                           \
 ({                                                              \
     size_t  __size = (size);                                    \

@@ -54,7 +54,7 @@ typedef struct imr_buffer
 {
     /* ...DMA file descriptor */
     int                 dmafd[GST_VIDEO_MAX_PLANES];
-    
+
     /* ...associated GStreamer input/output buffers */
     GstBuffer          *input, *output;
 
@@ -116,7 +116,7 @@ extern const GstMetaInfo *imr_meta_get_info(void);
 extern imr_data_t * imr_init(char **devname, int num, camera_callback_t *cb, void *cdata);
 
 /* ...IMR device configuration */
-extern int imr_setup(imr_data_t *imr, int i, int w, int h, int W, int H, int ifmt, int ofmt, int size);
+extern int imr_setup(imr_data_t *imr, int i, int w, int h, int W, int H, int stride, int ifmt, int ofmt, int size);
 
 /* ...start IMR operation */
 extern int imr_start(imr_data_t *imr);

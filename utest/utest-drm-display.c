@@ -95,7 +95,7 @@ static inline void __list_delete(__list_t *item)
 static inline __list_t * __list_pop_head(__list_t *head)
 {
     __list_t   *item = head->next;
-    
+
     if (item != head)
     {
         __list_delete(item);
@@ -110,7 +110,7 @@ static inline __list_t * __list_pop_head(__list_t *head)
 static inline __list_t * __list_pop_tail(__list_t *head)
 {
     __list_t   *item = head->prev;
-    
+
     if (item != head)
     {
         __list_delete(item);
@@ -212,13 +212,13 @@ enum display_prop
     PROP_CKEY_SET1,
     PROP_NUMBER
 };
-    
+
 /* ...dispatch loop source */
 typedef struct display_source_cb
 {
     /* ...processing function */
     int           (*hook)(display_data_t *, struct display_source_cb *, u32 events);
-    
+
 }   display_source_cb_t;
 
 /* ...display data */
@@ -247,7 +247,7 @@ struct display_data
 
     /* ...plane properties */
     uint32_t                    prop[PROP_NUMBER];
-    
+
     /* ...cairo device associated with display */
     cairo_device_t             *cairo;
 
@@ -303,7 +303,7 @@ struct window_data
 
     /* ...modeset initialization flag - tbd */
     int                         modeset;
-    
+
     /* ...frame-buffer identifiers (should be two) */
     uint32_t                    fb_id;
 
@@ -321,7 +321,7 @@ struct window_data
 
     /* ...atomic request pointer */
     drmModeAtomicReqPtr         atomic_req;
-    
+
     /* ...internal data access lock */
     pthread_mutex_t             lock;
 
@@ -496,7 +496,7 @@ static int init_drm(struct udev_device *device)
     {
         uint32_t            prop_id = props->props[i];
         drmModePropertyPtr  prop;
-        
+
         if ((prop = drmModeGetProperty(fd, prop_id)) == NULL)
         {
             TRACE(ERROR, _x("failed to get property #%u (of %u): %m"), i, props->count_props);
@@ -589,7 +589,7 @@ static int init_drm(struct udev_device *device)
     if (1)
     {
         drm_magic_t magic;
-        
+
         if (drmGetMagic(fd, &magic) == 0)
         {
             TRACE(0, _b("master: %d"), drmAuthMagic(fd, magic));
@@ -641,7 +641,7 @@ static int output_mode_supported(output_data_t *output, int width, int height)
 {
     int                 i;
     drmModeModeInfo    *best = NULL;
-    
+
     for (i = 0; i < output->modes_num; i++)
     {
         drmModeModeInfo    *mode = &output->modes[i];
@@ -652,7 +652,7 @@ static int output_mode_supported(output_data_t *output, int width, int height)
                   mode->hdisplay, mode->vdisplay, mode->vrefresh, mode->flags, mode->type);
 
             //if (mode->vrefresh == 50)   return output->current_mode = mode, 0;
-            
+
             /* ...set mode pointer */
             output->current_mode = mode;
 
@@ -684,7 +684,7 @@ static output_data_t * create_output(display_data_t *display, drmModeRes *resour
     output->id = i;
     output->crtc = resources->crtcs[i];
     output->connector_id = c->connector_id;
-    
+
     /* ...get current connector mode */
     if ((crtc = drmModeGetCrtc(display->fd, output->crtc)) == NULL)
     {
@@ -717,7 +717,7 @@ static output_data_t * create_output(display_data_t *display, drmModeRes *resour
         memcpy(output->modes, c->modes, sizeof(drmModeModeInfo) * c->count_modes);
         output->modes_num = c->count_modes;
     }
-    
+
     /* ...get list of modes */
     for (i = 0; i < (int)c->count_modes; i++)
     {
@@ -725,7 +725,7 @@ static output_data_t * create_output(display_data_t *display, drmModeRes *resour
 
         TRACE(INFO, _b("mode[%d]: %u*%u@%u"), i, mode->hdisplay, mode->vdisplay, mode->vrefresh);
     }
-    
+
     /* ...put output into list */
     __list_push_tail(&display->outputs, &output->link);
 
@@ -805,7 +805,7 @@ static inline uint32_t drm_fb_create_dumb(display_data_t *display, unsigned w, u
     if (buf)
     {
         struct drm_mode_map_dumb        map_arg;
-        
+
         /* ...map the buffer created (need that? don't know yet) */
         memset(&map_arg, 0, sizeof(map_arg));
         map_arg.handle = create_arg.handle;
@@ -814,7 +814,7 @@ static inline uint32_t drm_fb_create_dumb(display_data_t *display, unsigned w, u
             TRACE(ERROR, _x("failed to map buffer: %m"));
             return (uint32_t)-1;
         }
-    
+
         *buf = mmap(0, create_arg.size, PROT_READ | PROT_WRITE, MAP_SHARED, display->fd, map_arg.offset);
         if (*buf == MAP_FAILED)
         {
@@ -824,7 +824,7 @@ static inline uint32_t drm_fb_create_dumb(display_data_t *display, unsigned w, u
     }
 
     TRACE(INFO, _b("dumb buffer created: %u"), fb_id);
-    
+
 	return fb_id;
 
 #if 0
@@ -874,7 +874,7 @@ static void vblank_handler(int fd, unsigned int frame, unsigned int sec, unsigne
 	}
 #endif
 
-    TRACE(1, _b("vblank called with data: %p"), data);    
+    TRACE(1, _b("vblank called with data: %p"), data);
 }
 
 /* ...page-flip handler */
@@ -900,7 +900,7 @@ static int drm_event(display_data_t *display, display_source_cb_t *cb, u32 event
 
     /* ...drop event if no reading flag set */
     if ((events & EPOLLIN) == 0)        return 0;
- 
+
     TRACE(DEBUG, _b("DRM input event"));
 
 	memset(&evctx, 0, sizeof(evctx));
@@ -926,7 +926,7 @@ static int udev_monitor_event(display_data_t *display, display_source_cb_t *cb, 
 
     /* ...drop event if no reading flag set */
     if ((events & EPOLLIN) == 0)        return 0;
-    
+
     /* ...read next event */
     CHK_ERR(event = udev_monitor_receive_device(display->udev_monitor), -errno);
 
@@ -960,7 +960,7 @@ static display_source_cb_t udev_source = {
 static inline int __add_poll_source(int efd, int fd, display_source_cb_t *cb)
 {
     struct epoll_event  event;
-    
+
     event.events = EPOLLIN;
     event.data.ptr = cb;
     return epoll_ctl(efd, EPOLL_CTL_ADD, fd, &event);
@@ -1070,7 +1070,7 @@ static output_data_t *display_get_output(display_data_t *display, int n)
         /* ...check for identifier */
         if (output->id == n)    return  output;
     }
-    
+
     /* ...not found */
     return NULL;
 }
@@ -1088,7 +1088,7 @@ static int input_spacenav_event(display_data_t *display, display_source_cb_t *cb
 
     /* ...drop event if no reading flag set */
     if ((events & EPOLLIN) == 0)        return 0;
-    
+
     /* ...retrieve poll event */
     if (CHK_API(spnav_poll_event(&e)) == 0)     return 0;
 
@@ -1121,29 +1121,29 @@ static display_source_cb_t spacenav_source = {
 static inline int input_spacenav_init(display_data_t *display)
 {
     int     fd;
-    
+
     /* ...open spacenav device (do not die if not found) */
     if (spnav_open() < 0)
     {
         TRACE(INIT, _b("spacenavd daemon is not running"));
         return 0;
     }
-    
+
     if ((fd = spnav_fd()) < 0)
     {
         TRACE(ERROR, _x("failed to open spacenav connection: %m"));
         goto error;
     }
-    
+
     /* ...add file-descriptor as display poll source */
     if (__add_poll_source(display->i_efd, fd, &spacenav_source) < 0)
     {
         TRACE(ERROR, _x("failed to add poll source: %m"));
         goto error;
     }
-    
+
     TRACE(INIT, _b("spacenav input added"));
-    
+
     return 0;
 
 error:
@@ -1188,7 +1188,7 @@ static void libinput_keyboard_event(display_data_t *display, u32 state, u32 key)
     event.key.type = WIDGET_EVENT_KEY_PRESS;
     event.key.code = key;
     event.key.state = state;
-   
+
     /* ...go through all windows (respect SEAT somehow probably? - tbd) */
 	for (item = list_first(list); item != list_null(list); item = list_next(list, item))
 	{
@@ -1453,7 +1453,7 @@ static int __widget_init(widget_data_t *widget, window_data_t *window, int W, in
             TRACE(ERROR, _x("widget initialization failed: %m"));
             goto error;
         }
-     
+
         /* ...mark widget is dirty */
         widget->dirty = 1;
     }
@@ -1468,7 +1468,7 @@ static int __widget_init(widget_data_t *widget, window_data_t *window, int W, in
     return 0;
 
 error:
-    return -1;    
+    return -1;
 }
 
 /* ...return current widget width */
@@ -1570,7 +1570,7 @@ window_data_t * window_create(display_data_t *display, window_info_t *info, widg
     if (1 && (window->flags & WINDOW_FLAG_MODESET) == 0)
     {
         drmModeCrtcPtr  crtc;
-        
+
         if (drmModeSetCrtc(display->fd, output->crtc, -1, 0, 0, &output->connector_id, 1, output->current_mode) < 0)
         {
             TRACE(ERROR, _x("mode-set failed: %m"));
@@ -1585,7 +1585,7 @@ window_data_t * window_create(display_data_t *display, window_info_t *info, widg
         window->flags |= WINDOW_FLAG_MODESET;
     }
 
-#if 0    
+#if 0
     /* ...create dumb framebuffer (need that? don't know) */
     void *buf = NULL;
 
@@ -1751,7 +1751,7 @@ display_data_t * display_create(const int support_stdin)
     pthread_attr_t      attr;
     int                 r;
     struct udev_device *drm_device;
-    
+
     /* ...reset display data */
     memset(display, 0, sizeof(*display));
 
@@ -1905,7 +1905,7 @@ void texture_set_crop(texture_crop_t *tcoord, int x0, int y0, int x1, int y1)
 
 static inline int texture_view_x0(texture_view_t *v)
 {
-    return (*v)[0];    
+    return (*v)[0];
 }
 
 static inline int texture_view_y0(texture_view_t *v)
@@ -1925,7 +1925,7 @@ static inline int texture_view_y1(texture_view_t *v)
 
 static inline float texture_view_width(texture_view_t *v)
 {
-    return ((*v)[2] - (*v)[0]);    
+    return ((*v)[2] - (*v)[0]);
 }
 
 static inline float texture_view_height(texture_view_t *v)
@@ -2017,7 +2017,7 @@ void texture_destroy(texture_data_t *texture)
 
     /* ...destroy framebuffer object */
     (texture->fb_id ? drmModeRmFB(display->fd, texture->fb_id) : 0);
-    
+
     /* ...destroy texture structure */
     free(texture);
 }
@@ -2027,18 +2027,18 @@ int window_screenshot(window_data_t *window, texture_data_t *texture)
 {
     display_data_t      *display = &__display;
     output_data_t       *output = (window ? window->output : display_get_output(display, 0));
-    
+
     struct rcar_du_screen_shot  ss = {
         .buff = texture->fb_id,
         .crtc_id = output->crtc,
     };
 
     TRACE(INIT, _b("make a screenshot"));
- 
+
     CHK_API(drmIoctl(display->fd, DRM_IOCTL_RCAR_DU_SCRSHOT, &ss));
 
     TRACE(INIT, _b("screenshoot created"));
-    
+
     return 0;
 }
 
@@ -2057,7 +2057,7 @@ int plane_setup(window_data_t *window, int i, texture_data_t *texture, texture_d
     uint32_t                X0, Y0, W, H;
     drmModeAtomicReqPtr     req;
     u32                     t0, t1, t2, t3, t4;
-    
+
     t0 = __get_time_usec();
 
     /* ...view-port setup */
@@ -2119,13 +2119,13 @@ int plane_setup(window_data_t *window, int i, texture_data_t *texture, texture_d
         CHK_API(drmModeAtomicAddProperty(req, plane_id, display->prop[PROP_FB_ID], 0));
     }
 
-#if 0
+#if 1
     /* ...set apha-plane property */
     CHK_API(drmModeAtomicAddProperty(req, plane_id, display->prop[PROP_ALPHAPLANE], (alpha ? alpha->fb_id : 0)));
-    
+
     /* ...set global alpha value */
     CHK_API(drmModeAtomicAddProperty(req, plane_id, display->prop[PROP_ALPHA], tr));
-    
+
     /* ...set blending property */
     CHK_API(drmModeAtomicAddProperty(req, plane_id, display->prop[PROP_BLEND], blend));
 

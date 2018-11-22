@@ -3,7 +3,7 @@
  *
  * Surround-view unit-test main function
  *
- * Copyright (c) 2015 Cogent Embedded Inc. ALL RIGHTS RESERVED.
+ * Copyright (c) 2015-2018 Cogent Embedded Inc. ALL RIGHTS RESERVED.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,7 +24,7 @@
  * THE SOFTWARE.
  *******************************************************************************/
 
-#define MODULE_TAG                      MAIN
+#define MODULE_TAG MAIN
 
 /*******************************************************************************
  * Includes
@@ -32,6 +32,7 @@
 
 #include "utest-common.h"
 #include "utest-app.h"
+#include "utest-yaml.h"
 #include <getopt.h>
 #include <linux/videodev2.h>
 
@@ -48,38 +49,52 @@ TRACE_TAG(DEBUG, 0);
  ******************************************************************************/
 
 /* ...output device for main */
-int     __output_main = 1;
+int __output_main = 1;
 
 /* ...log level (looks ugly) */
-int     LOG_LEVEL = 1;
+int LOG_LEVEL = 1;
 
 /* ...V4L2 device name */
-char   *imr_dev_name[] = {
+char *imr_dev_name[IMR_NUMBER] = {
     "/dev/video4",
     "/dev/video5",
     "/dev/video6",
-    "/dev/video7",
-
+    "/dev/video4",
+    "/dev/video5",
+    "/dev/video6",
+    "/dev/video4",
+    "/dev/video5",
 };
 
 /* ...default joystick device name  */
-char   *joystick_dev_name = "/dev/input/js0";
+char *joystick_dev_name = "/dev/input/js0";
 
 int support_stdin = 0;
 /* ...input (VIN) format */
-u32     __vin_format = V4L2_PIX_FMT_UYVY;
-int     __vin_width = 1280, __vin_height = 800;
-int     __vin_buffers_num = 6;
+u32 __vin_format = V4L2_PIX_FMT_UYVY;
+int __vin_width = 1280, __vin_height = 800;
+int __vin_buffers_num = 6;
 
 /* ...VSP dimensions */
-int     __vsp_width = 1280, __vsp_height = 720;
+int __vsp_width = 1280, __vsp_height = 720;
+
+/*... camera intrinsic*/
+camera_intrinsic_t camera_intrinsic_list[CAMERAS_NUMBER];
+char *config_name[CAMERAS_NUMBER] = {
+    "config.yaml",
+    "config.yaml",
+    "config.yaml",
+    "config.yaml",
+};
+
+bool prepare_rectified_mesh = false;
 
 /*******************************************************************************
  * Live capturing from VIN cameras
  ******************************************************************************/
 
 /* ...default V4L2 device names */
-char * vin_dev_name[4] = {
+char *vin_dev_name[4] = {
     "/dev/video0",
     "/dev/video1",
     "/dev/video2",
@@ -92,7 +107,7 @@ char * vin_dev_name[4] = {
 /* ...parse VIN device names */
 static inline int parse_vin_devices(char *str, char **name, int n)
 {
-    char   *s;
+    char *s;
 
     for (s = strtok(str, ","); n > 0 && s; n--, s = strtok(NULL, ","))
     {
@@ -136,29 +151,49 @@ static inline u32 parse_format(char *str)
 }
 
 /* ...command-line options */
-static const struct option    options[] = {
-    {   "debug",    required_argument,  NULL,   'd' },
-    {   "vin",      required_argument,  NULL,   'v' },
-    {   "imr",      required_argument,  NULL,   'r' },
-    {   "format",   required_argument,  NULL,   'f' },
-    {   "width",    required_argument,  NULL,   'w' },
-    {   "height",   required_argument,  NULL,   'h' },
-    {   "Width",    required_argument,  NULL,   'W' },
-    {   "Height",   required_argument,  NULL,   'H' },
-    {   "buffers",  required_argument,  NULL,   'n' },
-    {   "cameras",  required_argument,  NULL,   'N' },
-    {   "stdin",    no_argument,	NULL,	'i' },
-    {   NULL,       0,                  NULL,   0   },
+static const struct option options[] = {
+    {"debug", required_argument, NULL, 'd'},
+    {"vin", required_argument, NULL, 'v'},
+    {"imr", required_argument, NULL, 'r'},
+    {"format", required_argument, NULL, 'f'},
+    {"width", required_argument, NULL, 'w'},
+    {"height", required_argument, NULL, 'h'},
+    {"Width", required_argument, NULL, 'W'},
+    {"Height", required_argument, NULL, 'H'},
+    {"buffers", required_argument, NULL, 'n'},
+    {"cameras", required_argument, NULL, 'N'},
+    {"intrinsic_config", required_argument, NULL, 'c'},
+    {"stdin", no_argument, NULL, 'i'},
+    {"help", no_argument, NULL, 'p'},
+    {NULL, 0, NULL, 0},
 };
+
+void usage(char *name)
+{
+    fprintf(stderr, "usage: %s\n", name);
+    fprintf(stderr, "   --debug,                -d              debug level (logging)\n");
+    fprintf(stderr, "   --vin,                  -v              camera device names\n");
+    fprintf(stderr, "   --imr,                  -r              imr device names\n");
+    fprintf(stderr, "   --format,               -f              input frame format\n");
+    fprintf(stderr, "   --width,                -w              input frame width (pixels)\n");
+    fprintf(stderr, "   --height,               -h              input frame height (pixels)\n");
+    fprintf(stderr, "   --Width,                -W              output frame width (pixels)\n");
+    fprintf(stderr, "   --Height,               -H              output frame height (pixels)\n");
+    fprintf(stderr, "   --buffers,              -n              number of input buffers in queue\n");
+    fprintf(stderr, "   --cameras,              -N              number of cameras\n");
+    fprintf(stderr, "   --intrinsic_config,     -c              path and name of camera intrinsic files\n");
+    fprintf(stderr, "   --stdin,                -i              support of frame capture\n");
+    fprintf(stderr, "   --help,                 -p              this helpful message\n");
+}
 
 /* ...option parsing */
 static int parse_cmdline(int argc, char **argv)
 {
-    int     index = 0;
-    int     opt;
+    int index = 0;
+    int opt;
 
     /* ...process command-line parameters */
-    while ((opt = getopt_long(argc, argv, "d:v:r:f:w:h:W:H:n:N:i", options, &index)) >= 0)
+    while ((opt = getopt_long(argc, argv, "d:v:r:f:w:h:W:H:n:N:i:c:p:", options, &index)) >= 0)
     {
         switch (opt)
         {
@@ -221,11 +256,24 @@ static int parse_cmdline(int argc, char **argv)
             TRACE(INIT, _b("Number of cameras: '%s'"), optarg);
             CHK_ERR((u32)(cameras_number = atoi(optarg)) < 5, -(errno = EINVAL));
             break;
-	case 'i':
+
+        case 'i':
             TRACE(INIT, _b("Use stdin to capture camera images"));
             support_stdin = 1;
             break;
+
+        case 'p':
+            usage(argv[0]);
+            break;
+
+        case 'c':
+            TRACE(INIT, _b("Camera intrinsic configs '%s'"), optarg);
+            CHK_API(parse_vin_devices(optarg, config_name, cameras_number));
+            prepare_rectified_mesh = true;
+            break;
+
         default:
+            usage(argv[0]);
             return -EINVAL;
         }
     }
@@ -239,11 +287,12 @@ static int parse_cmdline(int argc, char **argv)
 
 int main(int argc, char **argv)
 {
-    display_data_t  *display;
-    app_data_t      *app;
+    display_data_t *display;
+    app_data_t *app;
 
     /* ...initialize tracer facility */
     TRACE_INIT("Smart-camera demo");
+    TRACE_INIT(VERSION);
 
     /* ...initialize GStreamer */
     gst_init(&argc, &argv);
@@ -251,6 +300,16 @@ int main(int argc, char **argv)
     /* ...parse application specific parameters */
     CHK_API(parse_cmdline(argc, argv));
 
+    /* ...parse camera intrinsic parameters */
+    if (prepare_rectified_mesh)
+    {
+        int i = 0;
+
+        for (i = 0; i < cameras_number; i++)
+        {
+            CHK_API(config_parse_intrinsics(camera_intrinsic_list, config_name[i], i));
+        }
+    }
     /* ...initialize display subsystem */
     CHK_ERR(display = display_create(support_stdin), -errno);
 
@@ -264,4 +323,3 @@ int main(int argc, char **argv)
 
     return 0;
 }
-

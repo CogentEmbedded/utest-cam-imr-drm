@@ -32,8 +32,10 @@
 
 #include "utest-common.h"
 #include "utest-camera.h"
-#include "utest-vsink.h"
+#include "utest-vin.h"
 #include "utest-png.h"
+#include "utest-mmngr.h"
+#include "utest-common-math.h"
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -56,6 +58,7 @@ TRACE_TAG(DEBUG, 0);
 /* ...individual camera buffer pool size */
 #define VIN_BUFFER_POOL_SIZE            5
 #define OTP_ID_NAME_SIZE        32
+
 /*******************************************************************************
  * Local types definitions
  ******************************************************************************/
@@ -65,7 +68,7 @@ typedef struct vin_buffer
 {
     /* ...data pointer */
     void               *data;
-    
+
     /* ...memory offset */
     u32                 offset;
 
@@ -74,7 +77,7 @@ typedef struct vin_buffer
 
     /* ...associated GStreamer buffer */
     GstBuffer          *buffer;
-    
+
 }   vin_buffer_t;
 
 /* ...particular video device */
@@ -85,7 +88,7 @@ typedef struct vin_device
 
     /* ...output buffers pool length */
     int                     size;
-    
+
     /* ...buffers pool */
     vin_buffer_t           *pool;
 
@@ -101,12 +104,13 @@ typedef struct vin_device
     /* ...conditional variable for busy buffers collection */
     pthread_cond_t          wait;
 
-    char                   otpid[OTP_ID_NAME_SIZE];
+    char                    otpid[OTP_ID_NAME_SIZE];
 
-    int                    snapshot_index;
+    int                     snapshot_index;
+
 }   vin_device_t;
-    
-/* ...decoder data structure */   
+
+/* ...decoder data structure */
 typedef struct vin_data
 {
     /* ...GStreamer bin element for pipeline handling */
@@ -117,7 +121,7 @@ typedef struct vin_data
 
     /* ...number of devices connected */
     int                         num;
-    
+
     /* ...device-specific data */
     vin_device_t               *dev;
 
@@ -145,34 +149,6 @@ typedef struct vin_data
  * Custom buffer metadata implementation
  ******************************************************************************/
 
-/* ...metadata structure */
-typedef struct vin_meta
-{
-    GstMeta             meta;
-
-    /* ...camera identifier */
-    int                 camera_id;
-
-    /* ...buffer index in the camera pool */
-    int                 index;
-
-}   vin_meta_t;
-
-/* ...metadata API type accessor */
-extern GType vin_meta_api_get_type(void);
-#define VIN_META_API_TYPE               (vin_meta_api_get_type())
-
-/* ...metadata information handle accessor */
-extern const GstMetaInfo *vin_meta_get_info(void);
-#define VIN_META_INFO                   (vin_meta_get_info())
-
-/* ...get access to the buffer metadata */
-#define gst_buffer_get_vin_meta(b)      \
-    ((vin_meta_t *)gst_buffer_get_meta((b), VIN_META_API_TYPE))
-
-/* ...attach metadata to the buffer */
-#define gst_buffer_add_vin_meta(b)    \
-    ((vin_meta_t *)gst_buffer_add_meta((b), VIN_META_INFO, NULL))
 
 /* ...metadata type registration */
 GType vin_meta_api_get_type(void)
@@ -254,7 +230,7 @@ static inline int __vin_check_caps(int vfd)
 {
 	struct v4l2_capability  cap;
     u32                     caps;
-    
+
     /* ...query device capabilities */
     CHK_API(ioctl(vfd, VIDIOC_QUERYCAP, &cap));
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
@@ -277,6 +253,22 @@ static inline int __vin_check_caps(int vfd)
 
     /* ...all good */
     return 0;
+}
+
+/* ...calculate default stride size */
+static inline int __vin_default_stride(int width, u32 format)
+{
+    switch (format) {
+    case V4L2_PIX_FMT_UYVY:
+    case V4L2_PIX_FMT_VYUY:
+    case V4L2_PIX_FMT_YVYU:
+    case V4L2_PIX_FMT_YUYV:
+        return CHECK_MULTIPLICITY(width * 2, 255);
+    case V4L2_PIX_FMT_NV16:
+        return CHECK_MULTIPLICITY(width, 255);;
+    default:
+        return 0;
+    }
 }
 
 /* ...prepare VIN module for operation */
@@ -308,7 +300,11 @@ static inline int vin_set_formats(int vfd, int width, int height, u32 format)
     fmt.fmt.pix.field = V4L2_FIELD_ANY;
     fmt.fmt.pix.width = width;
     fmt.fmt.pix.height = height;
+    fmt.fmt.pix.bytesperline = __vin_default_stride(width, format);
+    TRACE(1, _x("VIN format: fmt=%c%c%c%c, width=%d, stride=%d"), __v4l2_fmt(format),
+          fmt.fmt.pix.width, fmt.fmt.pix.bytesperline);
     CHK_API(ioctl(vfd, VIDIOC_S_FMT, &fmt));
+    BUG(0, _x("break: width=%d, stride=%d"), fmt.fmt.pix.width, fmt.fmt.pix.bytesperline);
 
     return 0;
 }
@@ -317,7 +313,7 @@ static inline int vin_set_formats(int vfd, int width, int height, u32 format)
 static inline int vin_streaming_enable(int vfd, int enable)
 {
     int     type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    
+
     return CHK_API(ioctl(vfd, (enable ? VIDIOC_STREAMON : VIDIOC_STREAMOFF), &type));
 }
 
@@ -331,51 +327,15 @@ static inline int vin_allocate_buffers(int vfd, vin_buffer_t *pool, int num)
     /* ...all buffers are allocated by kernel */
     memset(&reqbuf, 0, sizeof(reqbuf));
     reqbuf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    reqbuf.memory = V4L2_MEMORY_MMAP;
+    reqbuf.memory = V4L2_MEMORY_DMABUF;
     reqbuf.count = num;
     CHK_API(ioctl(vfd, VIDIOC_REQBUFS, &reqbuf));
     CHK_ERR(reqbuf.count == (u32)num, -(errno = ENOMEM));
-
-    /* ...prepare query data */
-    memset(&buf, 0, sizeof(buf));
-    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    buf.memory = V4L2_MEMORY_MMAP;
-    for (j = 0; j < num; j++)
-    {
-        vin_buffer_t   *_buf = &pool[j];
-
-        /* ...query buffer */
-        buf.index = j;
-        CHK_API(ioctl(vfd, VIDIOC_QUERYBUF, &buf));
-        _buf->length = buf.length;
-        _buf->offset = buf.m.offset;
-        _buf->data = mmap(NULL, _buf->length, PROT_READ | PROT_WRITE, MAP_SHARED, vfd, _buf->offset);
-        CHK_ERR(_buf->data != MAP_FAILED, -errno);
-
-        TRACE(DEBUG, _b("output-buffer-%d mapped: %p[%08X] (%u bytes)"), j, _buf->data, _buf->offset, _buf->length);
-    }
 
     /* ...start streaming as soon as we allocated buffers */
     CHK_API(vin_streaming_enable(vfd, 1));
 
     TRACE(INFO, _b("buffer-pool allocated (%u buffers)"), num);
-
-    return 0;
-}
-
-/* ...export DMA file-descriptors for buffers */
-static inline int vin_export_buffers(int vfd, int j, int *dmafd)
-{
-    struct v4l2_exportbuffer    expbuf;
-    
-    /* ...emit request */
-    memset(&expbuf, 0, sizeof(expbuf));
-    expbuf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    expbuf.index = j;
-    CHK_API(ioctl(vfd, VIDIOC_EXPBUF, &expbuf));
-
-    /* ...we have single plane only */
-    dmafd[0] = expbuf.fd;
 
     return 0;
 }
@@ -398,7 +358,7 @@ static inline int vin_destroy_buffers(int vfd, vin_buffer_t *pool, int num)
     /* ...release kernel-allocated buffers */
     memset(&reqbuf, 0, sizeof(reqbuf));
     reqbuf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    reqbuf.memory = V4L2_MEMORY_MMAP;
+    reqbuf.memory = V4L2_MEMORY_DMABUF;
     reqbuf.count = 0;
     CHK_API(ioctl(vfd, VIDIOC_REQBUFS, &reqbuf));
 
@@ -408,33 +368,34 @@ static inline int vin_destroy_buffers(int vfd, vin_buffer_t *pool, int num)
 }
 
 /* ...enqueue output buffer */
-static inline int vin_output_buffer_enqueue(int vfd, int j)
+static inline int vin_buffer_enqueue(int vfd, int j, int ifd, int ilen)
 {
     struct v4l2_buffer  buf;
 
     /* ...set buffer parameters */
     memset(&buf, 0, sizeof(buf));
     buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    buf.memory = V4L2_MEMORY_MMAP;
+    buf.memory = V4L2_MEMORY_DMABUF;
     buf.index = j;
+    buf.m.fd = ifd;
     CHK_API(ioctl(vfd, VIDIOC_QBUF, &buf));
 
     return 0;
 }
 
 /* ...dequeue input buffer */
-static inline int vin_output_buffer_dequeue(int vfd, u64 *ts, u32 *seq)
+static inline int vin_buffer_dequeue(int vfd, u64 *ts, u32 *seq)
 {
     struct v4l2_buffer  buf;
 
     /* ...set buffer parameters */
     memset(&buf, 0, sizeof(buf));
     buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    buf.memory = V4L2_MEMORY_MMAP;
+    buf.memory = V4L2_MEMORY_DMABUF;
     CHK_API(ioctl(vfd, VIDIOC_DQBUF, &buf));
     (ts ? *ts = buf.timestamp.tv_sec * 1000000ULL + buf.timestamp.tv_usec : 0);
     (seq ? *seq = buf.sequence : 0);
-    
+
     return buf.index;
 }
 
@@ -464,17 +425,19 @@ static inline int __register_poll(vin_data_t *vin, int i, int add)
 static inline int __submit_buffer(vin_data_t *vin, int i, int j)
 {
     vin_device_t   *dev = &vin->dev[i];
+    GstBuffer      *buffer = dev->pool[j].buffer;
+    vin_meta_t     *meta = gst_buffer_get_vin_meta(buffer);
 
     /* ...submit a buffer */
-    CHK_API(vin_output_buffer_enqueue(dev->vfd, j));
+    CHK_API(vin_buffer_enqueue(dev->vfd, j, meta->dmafd[0], meta->length));
 
     /* ...prepare output buffer if needed */
-    (vin->cb->prepare ? vin->cb->prepare(vin->cdata, i, dev->pool[i].buffer) : 0);
+    (vin->cb->prepare ? vin->cb->prepare(vin->cdata, i, buffer) : 0);
 
     /* ...register poll if needed */
     CHK_API(dev->submitted++ == 0 ? __register_poll(vin, i, 1) : 0);
 
-    TRACE(DEBUG, _b("enqueue buffer #<%d,%d>"), i, j);    
+    TRACE(DEBUG, _b("enqueue buffer #<%d,%d>"), i, j);
 
     return 0;
 }
@@ -487,19 +450,19 @@ static inline int __process_buffer(vin_data_t *vin, int i)
     int             j;
     u64             ts;
     u32             seq;
-    
+
     /* ...if streaming is disabled already, bail out (hmm - tbd) */
     BUG(!dev->active, _x("vin-%d: invalid state"), i);
 
     /* ...get buffer from a device */
-    CHK_API(j = vin_output_buffer_dequeue(dev->vfd, &ts, &seq));
+    CHK_API(j = vin_buffer_dequeue(dev->vfd, &ts, &seq));
 
     /* ...remove poll-source if last buffer is dequeued */
     (--dev->submitted == 0 ? __register_poll(vin, i, 0) : 0);
 
     /* ...get buffer descriptor */
     buffer = dev->pool[j].buffer;
-    
+
     /* ...set decoding/presentation timestamp (in nanoseconds) */
     GST_BUFFER_DTS(buffer) = GST_BUFFER_PTS(buffer) = ts * 1000;
 
@@ -519,7 +482,7 @@ static inline int __process_buffer(vin_data_t *vin, int i)
 
     /* ...reacquire data access lock */
     pthread_mutex_lock(&vin->lock);
-    
+
     return 0;
 }
 
@@ -537,7 +500,7 @@ static void * vin_thread(void *arg)
     CPU_ZERO(&cpuset);
     CPU_SET(0, &cpuset);
     CHK_ERR(pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) == 0, NULL);
-    
+
     /* ...set thread real-time priority */
     CHK_ERR(pthread_setschedparam(pthread_self(), SCHED_FIFO, &param) == 0, NULL);
 
@@ -549,13 +512,13 @@ static void * vin_thread(void *arg)
     while (1)
     {
         int     r, k;
-        
+
         /* ...release the lock before going to waiting state */
         pthread_mutex_unlock(&vin->lock);
         pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
 
         TRACE(DEBUG, _b("start waiting..."));
-        
+
         /* ...wait for event (infinite timeout) */
         r = epoll_wait(vin->efd, event, vin->num, -1);
 
@@ -611,7 +574,7 @@ int vin_start(vin_data_t *vin)
 {
     pthread_attr_t  attr;
     int             r;
-    
+
     /* ...mark module is active */
     vin->active = 1;
 
@@ -629,17 +592,37 @@ int vin_start(vin_data_t *vin)
 
 int vin_device_snapshot(vin_data_t *vin, int i, void *data)
 {
-    vsink_meta_t     *meta = gst_buffer_get_vsink_meta(data);
+    vin_meta_t     *meta = gst_buffer_get_vin_meta(data);
     vin_device_t   *dev = &vin->dev[i];
 
-    return store_png(dev->otpid, dev->snapshot_index++,  meta->width, meta->height, meta->format, meta->plane[0]);
+    FILE   *f;
+    char   *fname;
+
+    asprintf(&fname, "cam-%s-%03d.nv16", dev->otpid, dev->snapshot_index++);
+
+    if ((f = fopen(fname, "wb")) == NULL)
+    {
+        TRACE(ERROR, _x("failed to open '%s': %m"), fname);
+    }
+    else
+    {
+        int32_t size = fwrite(vsp_mem_ptr(meta->priv), meta->stride[0] * meta->height, 1, f);
+        TRACE(1, _b("snapshot file writted size %d"), size);
+        fclose(f);
+    }
+
+    free(fname);
+    return 0;
+
+    return store_png(dev->otpid, dev->snapshot_index++,  CHECK_MULTIPLICITY(meta->width, 255), meta->height, meta->format, vsp_mem_ptr(meta->priv));
 }
+
 /*******************************************************************************
  * Buffer pool handling
  ******************************************************************************/
 
 /* ...output buffer dispose function (called in response to "gst_buffer_unref") */
-static gboolean __output_buffer_dispose(GstMiniObject *obj)
+static gboolean __vin_buffer_dispose(GstMiniObject *obj)
 {
     GstBuffer      *buffer = GST_BUFFER(obj);
     vin_data_t     *vin = (vin_data_t *)buffer->pool;
@@ -667,14 +650,14 @@ static gboolean __output_buffer_dispose(GstMiniObject *obj)
 
         /* ...if streaming is enabled, submit buffer */
         (dev->active ? __submit_buffer(vin, i, j) : 0);
-        
+
         /* ...indicate the miniobject should not be freed */
         destroy = FALSE;
     }
     else
     {
         TRACE(DEBUG, _b("buffer %p is freed"), buffer);
- 
+
         /* ...signal flushing completion operation */
         (dev->busy == 0 ? pthread_cond_signal(&vin->wait) : 0);
 
@@ -687,7 +670,7 @@ static gboolean __output_buffer_dispose(GstMiniObject *obj)
 
     /* ...release data access lock */
     pthread_mutex_unlock(&vin->lock);
-    
+
     return destroy;
 }
 
@@ -713,7 +696,7 @@ static inline int __v4l2_pixfmt_planes(int w, int h, u32 fmt, u32 *size, u32 *st
         return size[0] = N * 4, stride[0] = w * 4, 1;
     case V4L2_PIX_FMT_YUV420:
         return size[0] = N, size[1] = size[2] = N >> 2, stride[0] = w, stride[1] = stride[2] = w >> 1, 3;
-    default:        
+    default:
         return TRACE(ERROR, _b("unrecognized format: %X: %c%c%c%c"), fmt, __v4l2_fmt(fmt)), 0;
     }
 }
@@ -759,7 +742,6 @@ int vin_device_init(vin_data_t *vin, int i, int w, int h, u32 fmt, int size)
         vin_buffer_t   *buf = &dev->pool[j];
         GstBuffer      *buffer;
         vin_meta_t     *meta;
-        vsink_meta_t   *vmeta;
         u32             size[GST_VIDEO_MAX_PLANES];
         int             n, k;
 
@@ -770,8 +752,11 @@ int vin_device_init(vin_data_t *vin, int i, int w, int h, u32 fmt, int size)
         CHK_ERR(meta = gst_buffer_add_vin_meta(buffer), -ENOMEM);
         meta->camera_id = i;
         meta->index = j;
+        meta->width = w;
+        meta->height = h;
+        meta->format = fmt;//__pixfmt_v4l2_to_gst(fmt);
         GST_META_FLAG_SET(meta, GST_META_FLAG_POOLED);
-
+#if 0
         /* ...add vsink metadata */
         CHK_ERR(vmeta = gst_buffer_add_vsink_meta(buffer), -ENOMEM);
         vmeta->width = w;
@@ -792,9 +777,9 @@ int vin_device_init(vin_data_t *vin, int i, int w, int h, u32 fmt, int size)
         }
 
         GST_META_FLAG_SET(vmeta, GST_META_FLAG_POOLED);
-
+#endif
         /* ...modify buffer release callback */
-        GST_MINI_OBJECT(buffer)->dispose = __output_buffer_dispose;
+        GST_MINI_OBJECT(buffer)->dispose = __vin_buffer_dispose;
 
         /* ...use "pool" pointer as a custom data */
         buffer->pool = (void *)vin;
@@ -876,7 +861,7 @@ void vin_destroy(gpointer data, GObject *obj)
 
     /* ...acquire lock */
     pthread_mutex_lock(&vin->lock);
-    
+
     /* ...clear activity flag */
     vin->active = 0;
 
@@ -887,11 +872,11 @@ void vin_destroy(gpointer data, GObject *obj)
     for (i = 0; i < vin->num; i++)
     {
         __vin_device_close(vin, i);
-    }    
+    }
 
     /* ...destroy mutex */
     pthread_mutex_destroy(&vin->lock);
-    
+
     /* ...destroy decoder structure */
     free(vin);
 
@@ -923,7 +908,7 @@ vin_data_t * vin_init(char **devname, int num, camera_callback_t *cb, void *cdat
     {
         TRACE(ERROR, _x("failed to create epoll: %m"));
         goto error;
-    }    
+    }
 
     /* ...open V4L2 devices */
     for (i = 0; i < num; i++)

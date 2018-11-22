@@ -31,7 +31,7 @@
  ******************************************************************************/
 
 #include "utest-imr.h"
-#include "utest-vsink.h"
+#include "utest-vin.h"
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -40,6 +40,7 @@
 #include <linux/version.h>
 #include <linux/videodev2.h>
 #include "imr-v4l2-api.h"
+#include "utest-common-math.h"
 #include <math.h>
 
 /*******************************************************************************
@@ -99,7 +100,7 @@ typedef struct imr_data
     int                     num;
 
     /* ...device-specific data */
-    imr_device_t           *dev;    
+    imr_device_t           *dev;
 
     /* ...poll file descriptors */
     struct pollfd          *pfd;
@@ -216,7 +217,7 @@ static inline u32 imr_avg_time_update(imr_device_t *dev, u32 delta)
     s32     acc;
 
     BUG(0 && (s32)delta < 0, _x("invalid delta: %d"), (s32)delta);
-    
+
     /* ...check if accumulator is initialized */
     if ((acc = dev->ts_acc) == 0)
     {
@@ -254,7 +255,7 @@ static inline int __imr_check_caps(int vfd)
 {
 	struct v4l2_capability  cap;
     u32                     caps;
-    
+
     /* ...query device capabilities */
     CHK_API(ioctl(vfd, VIDIOC_QUERYCAP, &cap));
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
@@ -284,7 +285,7 @@ static inline int __imr_check_caps(int vfd)
 }
 
 /* ...prepare IMR module for operation */
-static inline int imr_set_formats(int vfd, u32 w, u32 h, u32 W, u32 H, u32 ifmt, u32 ofmt)
+static inline int imr_set_formats(int vfd, u32 w, u32 h, u32 W, u32 H, int stride, u32 ifmt, u32 ofmt)
 {
 	struct v4l2_format  fmt;
 
@@ -295,6 +296,8 @@ static inline int imr_set_formats(int vfd, u32 w, u32 h, u32 W, u32 H, u32 ifmt,
 	fmt.fmt.pix.field = V4L2_FIELD_ANY;
     fmt.fmt.pix.width = w;
     fmt.fmt.pix.height = h;
+    u32 bytesperline = CHECK_MULTIPLICITY(stride, 255);
+    fmt.fmt.pix.bytesperline = bytesperline;
     CHK_API(ioctl(vfd, VIDIOC_S_FMT, &fmt));
 
     TRACE(INFO, _b("requested format: %u * %u, adjusted: %u * %u"), w, h, fmt.fmt.pix.width, fmt.fmt.pix.height);
@@ -309,6 +312,8 @@ static inline int imr_set_formats(int vfd, u32 w, u32 h, u32 W, u32 H, u32 ifmt,
 	fmt.fmt.pix.field = V4L2_FIELD_ANY;
     fmt.fmt.pix.width = W;
     fmt.fmt.pix.height = H;
+    bytesperline = CHECK_MULTIPLICITY(W, 63);
+    fmt.fmt.pix.bytesperline = bytesperline;
     CHK_API(ioctl(vfd, VIDIOC_S_FMT, &fmt));
 
     TRACE(INFO, _b("requested output format: %u * %u, adjusted: %u * %u"), W, H, fmt.fmt.pix.width, fmt.fmt.pix.height);
@@ -393,7 +398,7 @@ static inline int imr_buffers_enqueue(int vfd, int j, int ifd, u32 ilen, int ofd
     struct v4l2_buffer  buf;
 
     TRACE(DEBUG, _b("enqueue: j=%d, ifd=%d, ofd=%d"), j, ifd, ofd);
-    
+
     /* ...prepare input buffer */
     memset(&buf, 0, sizeof(buf));
     buf.type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
@@ -401,6 +406,7 @@ static inline int imr_buffers_enqueue(int vfd, int j, int ifd, u32 ilen, int ofd
     buf.index = j;
     buf.m.fd = ifd;
     buf.length = buf.bytesused = ilen;
+    TRACE(DEBUG, _b("input length: %u"), ilen);
     CHK_API(ioctl(vfd, VIDIOC_QBUF, &buf));
 
     /* ...set buffer parameters */
@@ -422,7 +428,7 @@ static inline int imr_buffers_dequeue(int vfd, int *error, u32 *duration)
     int                 j, k;
     u64                 t0, t1;
     u32                 seq;
-    
+
     /* ...dequeue input buffer */
     memset(&buf, 0, sizeof(buf));
     buf.type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
@@ -431,7 +437,7 @@ static inline int imr_buffers_dequeue(int vfd, int *error, u32 *duration)
     j = buf.index;
     t0 = buf.timestamp.tv_sec * 1000000ULL + buf.timestamp.tv_usec;
     seq = buf.sequence;
-    
+
     /* ...dequeue output buffer */
     memset(&buf, 0, sizeof(buf));
     buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -445,7 +451,7 @@ static inline int imr_buffers_dequeue(int vfd, int *error, u32 *duration)
 
     /* ...check sequences */
     BUG(buf.sequence != seq, _x("invalid sequence numbers: %u vs %u"), seq, buf.sequence);
-    
+
     /* ...put buffer procesing status */
     (error ? *error = !!(buf.flags & V4L2_BUF_FLAG_ERROR) : 0);
 
@@ -465,7 +471,7 @@ static inline int __register_poll(imr_data_t *imr, int i, int active)
     imr_device_t       *dev = &imr->dev[i];
 
     BUG(!dev->active || (active && !dev->submitted), _x("invalid poll op: active=%d, streaming=%d, submitted=%d"), active, dev->active, dev->submitted);
-    
+
     /* ...add/remove source */
     imr->pfd[i].fd = (active ? dev->vfd : -1);
 
@@ -473,7 +479,7 @@ static inline int __register_poll(imr_data_t *imr, int i, int active)
 
     /* ...notify servicing thread on poll-descriptor set change */
     pthread_kill(imr->thread, SIGUSR1);
-    
+
     return 0;
 }
 
@@ -483,7 +489,7 @@ static inline int __submit_buffer(imr_data_t *imr, int i)
     imr_device_t   *dev = &imr->dev[i];
     GstBuffer      *buffer;
     imr_buffer_t   *buf;
-    vsink_meta_t   *vmeta;
+    vin_meta_t     *meta;
     int             j;
 
     TRACE(DEBUG, _b("#%d: input: %d, submitted: %d, busy: %d"), i, g_queue_get_length(&dev->input), dev->submitted, dev->busy);
@@ -496,9 +502,9 @@ static inline int __submit_buffer(imr_data_t *imr, int i)
 
     /* ...get head of the queue */
     buffer = g_queue_pop_head(&dev->input);
-    
-    /* ...take vsink meta-data */
-    vmeta = gst_buffer_get_vsink_meta(buffer);
+
+    /* ...take vin meta-data */
+    meta = gst_buffer_get_vin_meta(buffer);
 
     /* ...get free buffer-pair index */
     buf = &dev->pool[j = dev->index];
@@ -512,7 +518,7 @@ static inline int __submit_buffer(imr_data_t *imr, int i)
     (imr->cb->prepare ? imr->cb->prepare(imr->cdata, i, buf->output) : 0);
 
     /* ...submit buffer-pair to the V4L2 */
-    CHK_API(imr_buffers_enqueue(dev->vfd, j, vmeta->dmafd[0], dev->input_length, buf->dmafd[0], dev->output_length));
+    CHK_API(imr_buffers_enqueue(dev->vfd, j, meta->dmafd[0], dev->input_length, buf->dmafd[0], dev->output_length));
 
     /* ...advance writing index */
     dev->index = (++j == dev->size ? 0 : j);
@@ -522,7 +528,7 @@ static inline int __submit_buffer(imr_data_t *imr, int i)
 
     /* ...add poll source as required */
     CHK_API(dev->submitted++ == 0 && dev->active ? __register_poll(imr, i, 1) : 0);
-    
+
     return 0;
 }
 
@@ -564,7 +570,7 @@ static inline int __process_buffer(imr_data_t *imr, int i)
 
     /* ...release lock before passing buffer to the application */
     pthread_mutex_unlock(&imr->lock);
-    
+
     /* ...pass output buffer to application */
     if (imr->cb->process(imr->cdata, i, buffer) != 0)
     {
@@ -591,10 +597,10 @@ static inline int __purge_buffer(imr_data_t *imr, int i)
 
     /* ...do nothing if no submitted buffers */
     if (!n)         return 0;
-    
+
     /* ...get index if oldest submitted buffer */
     dev->index = ((j -= n) < 0 ? j += N : j);
-    
+
     /* ...purge output queue */
     while (n--)
     {
@@ -629,9 +635,9 @@ static void * imr_thread(void *arg)
 
     /* ...use USR1 signal as a trigger to rearm poll descriptors */
     CHK_ERR(sigaction(SIGUSR1, &sa, 0) >= 0, NULL);
-    
+
     pthread_setname_np(pthread_self(), "imr");
-    
+
     /* ...lock internal data access */
     pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
     pthread_mutex_lock(&imr->lock);
@@ -641,7 +647,7 @@ static void * imr_thread(void *arg)
     {
         int         r, i;
         sigset_t    sigmask;
-        
+
         /* ...release the lock before going to waiting state */
         pthread_mutex_unlock(&imr->lock);
         pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
@@ -651,7 +657,7 @@ static void * imr_thread(void *arg)
         /* ...use USR1 signal to rearm the thread */
         sigemptyset(&sigmask);
         sigaddset(&sigmask, SIGINT);
-        
+
         /* ...wait for event (infinite timeout) */
         r = ppoll(imr->pfd, imr->num, NULL, &sigmask);
         if (r < 0 && errno == EINTR)
@@ -659,7 +665,7 @@ static void * imr_thread(void *arg)
             /* ...poll-descriptor set has been adjusted likely */
             r = 0;
         }
-        
+
         TRACE(0, _b("waiting complete: %d"), r);
 
         /* ...reacquire the lock */
@@ -672,7 +678,7 @@ static void * imr_thread(void *arg)
             TRACE(ERROR, _x("poll failed: %m"));
             goto out;
         }
-                
+
         /* ...process all signalled descriptors */
         for (i = 0; i < imr->num; i++)
         {
@@ -748,7 +754,7 @@ static gboolean __imr_buffer_dispose(GstMiniObject *obj)
     else
     {
         TRACE(DEBUG, _b("output buffer #<%d:%d> (%p) is freed"), i, j, buffer);
- 
+
         /* ...mark the buffer is freed */
         buf->output = NULL;
 
@@ -786,7 +792,7 @@ int imr_enable(imr_data_t *imr, int enable)
             dev = &imr->dev[i];
 
             if (dev->active)    continue;
-            
+
             /* ...enable input/output buffers streaming */
             CHK_API(imr_streaming_enable(dev->vfd, dev->active = 1));
 
@@ -829,7 +835,7 @@ int imr_enable(imr_data_t *imr, int enable)
 int imr_start(imr_data_t *imr)
 {
     pthread_attr_t  attr;
-    
+
     /* ...set decoder active flag */
     imr->active = 1;
 
@@ -844,7 +850,7 @@ int imr_start(imr_data_t *imr)
 
     /* ...enable streaming */
     CHK_API(imr_enable(imr, 1));
-    
+
     return 0;
 }
 
@@ -863,7 +869,7 @@ imr_data_t * imr_init(char **devname, int num, camera_callback_t *cb, void *cdat
     CHK_ERR(imr = calloc(1, sizeof(*imr)), (errno = ENOMEM, NULL));
 
     /* ...save application callback data */
-    imr->cb = cb, imr->cdata = cdata;    
+    imr->cb = cb, imr->cdata = cdata;
 
     /* ...allocate engine-specific data */
     if ((imr->dev = calloc(imr->num = num, sizeof(imr_device_t))) == NULL)
@@ -878,11 +884,11 @@ imr_data_t * imr_init(char **devname, int num, camera_callback_t *cb, void *cdat
         TRACE(ERROR, _x("failed to allocate %zu bytes"), num * sizeof(*imr->pfd));
         goto error;
     }
-    
+
     /* ...open V4L2 image renderer devices */
     for (i = 0; i < num; i++)
     {
-        imr_device_t   *dev = &imr->dev[i];        
+        imr_device_t   *dev = &imr->dev[i];
 
         /* ...open separate instance for an input camera */
         if ((dev->vfd = open(devname[i], O_RDWR | O_NONBLOCK)) < 0)
@@ -902,7 +908,7 @@ imr_data_t * imr_init(char **devname, int num, camera_callback_t *cb, void *cdat
         /* ...put negative file-descriptor into poll structure (waiting disabled) */
         imr->pfd[i].fd = -1;
         imr->pfd[i].events = POLLIN;
-        
+
         TRACE(DEBUG, _b("V4L2 IMR engine #%d initialized (%s)"), i, devname[i]);
     }
 
@@ -938,13 +944,13 @@ error:
 }
 
 /* ...distortion correction engine runtime initialization */
-int imr_setup(imr_data_t *imr, int i, int w, int h, int W, int H, int ifmt, int ofmt, int size)
+int imr_setup(imr_data_t *imr, int i, int w, int h, int W, int H, int stride, int ifmt, int ofmt, int size)
 {
     imr_device_t   *dev = &imr->dev[i];
     int             j;
 
-    /* ...calculate input buffer length (may be zero) */
-    dev->input_length = __pixfmt_image_size(w, h, ifmt);
+    /* ...set input buffer length */
+    CHK_ERR(dev->input_length = __pixfmt_image_size(CHECK_MULTIPLICITY(stride, 255), h, ifmt), -(errno = EINVAL));
 
     /* ...output buffer length must be positive (tbd - should I care about that?) */
     CHK_ERR(dev->output_length = __pixfmt_image_size(W, H, ofmt), -(errno = EINVAL));
@@ -953,7 +959,7 @@ int imr_setup(imr_data_t *imr, int i, int w, int h, int W, int H, int ifmt, int 
     dev->w = w, dev->h = h, dev->W = W, dev->H = H;
 
     /* ...set IMR format */
-    CHK_API(imr_set_formats(dev->vfd, w, h, W, H, __pixfmt_gst_to_v4l2(ifmt), __pixfmt_gst_to_v4l2(ofmt)));
+    CHK_API(imr_set_formats(dev->vfd, w, h, W, H, stride, __pixfmt_gst_to_v4l2(ifmt), __pixfmt_gst_to_v4l2(ofmt)));
 
     /* ...allocate buffers pool */
     CHK_ERR(dev->pool = calloc(dev->size = size, sizeof(imr_buffer_t)), -(errno = ENOMEM));
@@ -967,7 +973,7 @@ int imr_setup(imr_data_t *imr, int i, int w, int h, int W, int H, int ifmt, int 
         imr_buffer_t   *buf = &dev->pool[j];
         GstBuffer      *buffer;
         imr_meta_t     *meta;
-        
+
         /* ...create output buffer (add some memory? - tbd) */
         CHK_ERR(buf->output = buffer = gst_buffer_new(), -(errno = ENOMEM));
 
@@ -1011,7 +1017,7 @@ typedef struct imr_cfg
 
     /* ...memory handle (page-aligned) */
     vsp_mem_t              *mem;
-    
+
     /* ...any extra data? - tbd */
 
 }   imr_cfg_t;
@@ -1024,12 +1030,12 @@ imr_cfg_t * imr_cfg_create(u32 type, size_t size)
 {
     imr_cfg_t  *cfg;
     vsp_mem_t  *mem;
-    
+
     /* ...allocate configuration data structure */
     CHK_ERR(cfg = xcalloc(1, sizeof(*cfg)), NULL);
 
     /* ...allocate DMA-contiguous memory for a display list */
-    if ((cfg->mem = mem = vsp_mem_alloc(size)) == NULL)
+    if ((cfg->mem = mem = vsp_mem_alloc(size, 0)) == NULL)
     {
         free(cfg);
         return NULL;
@@ -1051,7 +1057,7 @@ int imr_cfg_dump(imr_cfg_t *cfg, const char *name, int i)
     struct imr_map_desc    *desc = &cfg->desc;
     char                    fname[256];
     FILE                   *f;
-    
+
     /* ...prepare file name */
     snprintf(fname, sizeof(fname), name, i);
 
@@ -1092,10 +1098,10 @@ int imr_cfg_apply(imr_data_t *imr, int i, imr_cfg_t *cfg)
 
     /* ...drop the cameras/alphas for a moment */
     (i < 0 ? size = 0 : 0);
-    
+
     /* ...put display-list terminator */
     *(u32 *)(cfg->dl.buffer + size) = IMR_OP_RET;
-    
+
     /* ...update configuration descriptor */
     desc->size = size + 4;
 
@@ -1128,9 +1134,9 @@ int imr_engine_push_buffer(imr_data_t *imr, int i, GstBuffer *buffer)
     int             r;
 
     BUG((u32)i >= (u32)imr->num, _x("invalid transaction: %d"), i);
-    
+
     /* ...make sure buffer has vsink metadata */
-    CHK_ERR(gst_buffer_get_vsink_meta(buffer), -(errno = EINVAL));
+    CHK_ERR(gst_buffer_get_vin_meta(buffer), -(errno = EINVAL));
 
     /* ...lock internal data access */
     pthread_mutex_lock(&imr->lock);
@@ -1160,10 +1166,10 @@ void imr_engine_close(imr_data_t *imr)
     pthread_cancel(imr->thread);
     pthread_join(imr->thread, NULL);
     TRACE(DEBUG, _b("thread joined"));
-    
+
     /* ...mark engine is disabled */
     imr->active = 0;
-    
+
     /* ...deallocate all buffers */
     for (i = 0; i < imr->num; i++)
     {
@@ -1182,7 +1188,7 @@ void imr_engine_close(imr_data_t *imr)
         for (j = 0; j < dev->size; j++)
         {
             GstBuffer  *buffer = dev->pool[j].output;
-            
+
             (buffer ? gst_buffer_unref(buffer) : 0);
         }
 

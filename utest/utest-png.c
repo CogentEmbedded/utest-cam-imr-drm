@@ -92,10 +92,10 @@ void uyvy_to_rgb(uint8_t* yuv_data, uint8_t* rgb_data, ssize_t width, ssize_t he
     int i = 0;
     for (i = 0; i < (width * height / 2); i++)
     {
-        yuv444_to_rgb888(yuv_pixel->y1, yuv_pixel->v, yuv_pixel->u, 
+        yuv444_to_rgb888(yuv_pixel->y1, yuv_pixel->v, yuv_pixel->u,
                          &(rgb_pixel->r), &(rgb_pixel->g), &(rgb_pixel->b));
         rgb_pixel++;
-        yuv444_to_rgb888(yuv_pixel->y2, yuv_pixel->v, yuv_pixel->u, 
+        yuv444_to_rgb888(yuv_pixel->y2, yuv_pixel->v, yuv_pixel->u,
                          &(rgb_pixel->r), &(rgb_pixel->g), &(rgb_pixel->b));
         rgb_pixel++;
         yuv_pixel++;
@@ -108,10 +108,10 @@ void yuyv_to_rgb(guint8* yuv_data, guint8* rgb_data, ssize_t width, ssize_t heig
     int i = 0;
     for (i = 0; i < (width * height / 2); i++)
     {
-        yuv444_to_rgb888(yuv_pixel->y1, yuv_pixel->u, yuv_pixel->v, 
+        yuv444_to_rgb888(yuv_pixel->y1, yuv_pixel->u, yuv_pixel->v,
                          &(rgb_pixel->r), &(rgb_pixel->g), &(rgb_pixel->b));
         rgb_pixel++;
-        yuv444_to_rgb888(yuv_pixel->y2, yuv_pixel->u, yuv_pixel->v, 
+        yuv444_to_rgb888(yuv_pixel->y2, yuv_pixel->u, yuv_pixel->v,
                          &(rgb_pixel->r), &(rgb_pixel->g), &(rgb_pixel->b));
         rgb_pixel++;
         yuv_pixel++;
@@ -165,7 +165,7 @@ static __attribute__((noreturn))  void __write_error(png_structp png_ptr, png_co
     jmp_buf    *jbp;
 
     TRACE(ERROR, _b("writepng libpng error: %s"), msg);
-  
+
     if ((jbp = png_get_error_ptr(png_ptr)) == NULL)
     {
         BUG(1, _x("non-recoverable error"));
@@ -218,7 +218,7 @@ int store_png(const char *otp_id, int index ,int width, int height, int format, 
         errno = ENOMEM;
         goto error;
     }
-  
+
     if (!(info_ptr = png_create_info_struct(png_ptr)))
     {
         TRACE(ERROR, _x("failed to create info struct: %m"));

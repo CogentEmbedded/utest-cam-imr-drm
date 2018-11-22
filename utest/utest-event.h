@@ -148,7 +148,7 @@ typedef struct widget_mouse_event
                     u32         axis;
                     int         value;
                 };
-            };        
+            };
         };
     };
 
@@ -162,7 +162,7 @@ typedef struct widget_joystick_event
 
     /* ...joystick event structure pointer */
     struct js_event    *e;
-    
+
 }   widget_joystick_event_t;
 
 /* ...generic file-descriptor event */

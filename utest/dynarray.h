@@ -3,7 +3,7 @@
  *
  * Dynamic arrays handling
  *
- * Copyright (c) 2017 Cogent Embedded Inc. ALL RIGHTS RESERVED.
+ * Copyright (c) 2017-2018 Cogent Embedded Inc. ALL RIGHTS RESERVED.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -76,7 +76,7 @@
         p = NULL;                                                                                   \
     }                                                                                               \
     p;                                                                                              \
-})          
+})
 
 /* ...reserve entry in the dynamic array */
 #define __dynarray_add_ext(id, k, p)                                                                \
@@ -92,7 +92,7 @@
         p = NULL;                                                                                   \
     }                                                                                               \
     p;                                                                                              \
-})    
+})
 
 /* ...add entry into dynamic array */
 #define __dynarray_add_nogrow(id, p)            \
@@ -108,7 +108,7 @@
         p = NULL;                               \
     }                                           \
     p;                                          \
-})          
+})
 
 /* ...pop last item from the dynamic array */
 #define __dynarray_pop(id, p)                   \
@@ -146,8 +146,8 @@
 
 /* ...serialize dynamic array */
 #define __dynarray_save(id, f)                                  \
-    ({ int __n = id._n; (__m_save(&__n, 1, (f)) ? : __m_save(id._p, __n, (f))); })        
-    
+    ({ int __n = id._n; (__m_save(&__n, 1, (f)) ? : __m_save(id._p, __n, (f))); })
+
 #define __dynarray_restore(id, f)                               \
     ({ int __n; __m_restore(&__n, 1, (f)) ? : (__dynarray_create(id, __n, __n) ? __m_restore(id._p, __n, (f)) : -1); })
 

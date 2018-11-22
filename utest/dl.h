@@ -53,8 +53,19 @@ typedef struct dl_abs
 
     /* ...vertices buffer */
     dl_vertex_abs_t         v[3];
-    
+
 }   __attribute__((packed))     dl_abs_t;
+
+/* ...display list item for absolute coordinates mesh */
+typedef struct dl_abs_quad
+{
+    /* ...opcode */
+    u32                     opcode;
+
+    /* ...vertices buffer */
+    dl_vertex_abs_t         v[4];
+
+}   __attribute__((packed))     dl_abs_quad_t;
 
 /* ...absolute coordinates with luminance correction */
 typedef struct dl_vertex_luce
@@ -75,7 +86,7 @@ typedef struct dl_luce
 
     /* ...vertices buffer */
     dl_vertex_luce_t        v[3];
-    
+
 }   __attribute__((packed))     dl_luce_t;
 
 /* ...absolute coordinates with full correction */
@@ -101,14 +112,14 @@ typedef struct dl_luce_clce
 
     /* ...vertices buffer */
     dl_vertex_luce_clce_t   v[3];
-    
+
 }   __attribute__((packed))     dl_luce_clce_t;
 
 typedef struct dl_strip_abs
 {
     /* ...<u,v> or <X,Y> coordinates of a strip vertex */
     u16         vY, uX;
-    
+
 }   __attribute__((packed))     dl_strip_abs_t;
 
 typedef struct dl_strip_luce_clce
@@ -124,7 +135,7 @@ typedef struct dl_strip_luce_clce
     u8          vrscal;
     s8          ubofs;
     u8          ubscal;
-    
+
 }   __attribute__((packed))     dl_strip_luce_clce_t;
 
 /* ...vertex with auto-generated source/destination coordinates only */
@@ -158,7 +169,7 @@ typedef struct display_list
 
     /* ...current buffer size */
     u32                             n;
-    
+
     /* ...total buffer length */
     u32                             a;
 
@@ -216,5 +227,5 @@ extern int dl_autocg_set_dxdy(display_list_t *dl, int dx, int dy);
 extern int dl_autocg_set_xy(display_list_t *dl, int x0, int y0);
 
 extern dl_strip_abs_t * dl_abs_strip_create(display_list_t *dl, int n);
-
+extern u32 set_opcode(int n);
 #endif  /* __DL_H */

@@ -39,7 +39,13 @@ typedef struct vsp_dmabuf       vsp_dmabuf_t;
  ******************************************************************************/
 
 /* ...contiguous memory allocation */
-extern vsp_mem_t * vsp_mem_alloc(u32 size);
+extern vsp_mem_t * vsp_mem_alloc(u32 size, int cached);
+
+/* ...cache invalidation operation */
+extern void vsp_mem_inv(vsp_mem_t *mem, size_t offset, size_t len);
+
+/* ...cache flushing operation */
+extern void vsp_mem_wb(vsp_mem_t *mem, size_t offset, size_t len);
 
 /* ...contiguous memory destruction */
 extern void vsp_mem_free(vsp_mem_t *mem);
@@ -63,7 +69,8 @@ extern int vsp_dmabuf_fd(vsp_dmabuf_t *dmabuf);
 extern void vsp_dmabuf_unexport(vsp_dmabuf_t *dmabuf);
 
 /* ...memory buffer pool allocation */
-extern int vsp_allocate_buffers(int w, int h, u32 fmt, vsp_mem_t **output, int num);
+extern int vsp_allocate_buffers(int w, int h, u32 fmt, vsp_mem_t **output, int num, int cached);
+extern int vsp_buffer_export_set_offset(vsp_mem_t *mem, int w, int h, u32 fmt, int *dmafd, u32 *offset, u32 *stride, u32 in_offset);
 
 /* ...export DMA file-descriptor representing contiguous block */
 extern int vsp_buffer_export(vsp_mem_t *mem, int w, int h, u32 format, int *dmafd, u32 *offset, u32 *stride);

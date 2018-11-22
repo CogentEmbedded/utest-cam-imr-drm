@@ -87,7 +87,7 @@ GType vsink_meta_api_get_type(void)
 static gboolean vsink_meta_init(GstMeta *meta, gpointer params, GstBuffer *buffer)
 {
     vsink_meta_t   *_meta = (vsink_meta_t *) meta;
-    
+
     /* ...reset fields */
     memset(meta + 1, 0, sizeof(*_meta) - sizeof(*meta));
 
@@ -104,7 +104,7 @@ static gboolean vsink_meta_transform(GstBuffer *transbuf, GstMeta *meta,
     _tmeta = gst_buffer_add_vsink_meta(transbuf);
 
     C_UNUSED(_tmeta), C_UNUSED(_meta);
-    
+
     return TRUE;
 }
 
@@ -112,7 +112,7 @@ static gboolean vsink_meta_transform(GstBuffer *transbuf, GstMeta *meta,
 static void vsink_meta_free(GstMeta *meta, GstBuffer *buffer)
 {
     vsink_meta_t   *_meta = (vsink_meta_t *) meta;
-    
+
     TRACE(DEBUG, _b("free metadata %p"), _meta);
 }
 
@@ -130,7 +130,7 @@ const GstMetaInfo * vsink_meta_get_info(void)
             vsink_meta_init,
             vsink_meta_free,
             vsink_meta_transform);
-        
+
         g_once_init_leave (&meta_info, mi);
     }
 
@@ -166,7 +166,7 @@ static GstBuffer * vsink_buffer_create(video_sink_t *sink, gint *dmabuf,
     case GST_VIDEO_FORMAT_NV12:
         /* ...make sure we have two planes */
         if (n_planes != 2)      goto error_planes;
-        
+
         TRACE(INFO, _b("allocate NV12 %u*%u texture (buffer=%p, meta=%p)"), width, height, buffer, meta);
 
         /* ...add buffer metadata */
@@ -181,7 +181,7 @@ static GstBuffer * vsink_buffer_create(video_sink_t *sink, gint *dmabuf,
         TRACE(INFO, _b("allocated %u*%u NV12 buffer: %p (dmafd=%d,%d)"), width, height, buffer, dmabuf[0], dmabuf[1]);
 
         break;
-    
+
     default:
         /* ...unrecognized format; give up */
         TRACE(ERROR, _b("unsupported buffer format: %s"), gst_video_format_to_string(format));
@@ -198,7 +198,7 @@ static GstBuffer * vsink_buffer_create(video_sink_t *sink, gint *dmabuf,
         gst_buffer_append_memory(buffer, m);
     }
 
-#if 0    
+#if 0
     /* ...add video metadata (not needed really - then why?) */
     gst_buffer_add_video_meta_full(buffer, GST_VIDEO_FRAME_FLAG_NONE, format,
                                    width, height, n_planes, offset, stride);
@@ -224,7 +224,7 @@ error:
 static GstPadProbeReturn vsink_probe(GstPad *pad, GstPadProbeInfo *info, gpointer user_data)
 {
     video_sink_t   *sink = user_data;
-    
+
     TRACE(0, _b("video-sink[%p]: probe <%X, %lu, %p, %llX, %u>"), sink, info->type, info->id, info->data, (unsigned long long)info->offset, info->size);
 
     if (info->type & GST_PAD_PROBE_TYPE_QUERY_DOWNSTREAM)
@@ -242,7 +242,7 @@ static GstPadProbeReturn vsink_probe(GstPad *pad, GstPadProbeInfo *info, gpointe
             GstStructure           *config;
             gboolean                need_pool;
             gchar                  *str;
-            
+
             /* ...parse allocation parameters from the query */
             gst_allocation_params_init(&params);
             gst_query_parse_allocation(query, &caps, &need_pool);
@@ -256,10 +256,10 @@ static GstPadProbeReturn vsink_probe(GstPad *pad, GstPadProbeInfo *info, gpointe
             if (pool)
             {
                 GstCaps    *_caps;
-                
+
                 config = gst_buffer_pool_get_config(pool);
                 gst_buffer_pool_config_get_params(config, &_caps, &size, NULL, NULL);
-                
+
                 if (!gst_caps_is_equal(caps, _caps))
                 {
                     TRACE(INFO, _b("caps are different; destroy pool"));
@@ -273,7 +273,7 @@ static GstPadProbeReturn vsink_probe(GstPad *pad, GstPadProbeInfo *info, gpointe
 
                 gst_structure_free(config);
             }
-            
+
             /* ...allocate pool if needed */
             if (pool == NULL && need_pool)
             {
@@ -302,7 +302,7 @@ static GstPadProbeReturn vsink_probe(GstPad *pad, GstPadProbeInfo *info, gpointe
                 gst_query_add_allocation_param(query, gst_allocator_find(NULL), &params);
 
                 TRACE(1, _b("query: %p added pool %p, allocator: %p"), query, pool, gst_allocator_find(NULL));
-                
+
                 /* ...create DMA allocator as well (hmm? doesn't look great) */
                 allocator = gst_dmabuf_allocator_new();
                 //gst_query_add_allocation_param(query, allocator, &params);
@@ -311,7 +311,7 @@ static GstPadProbeReturn vsink_probe(GstPad *pad, GstPadProbeInfo *info, gpointe
 
             /* ...output query parameters */
             TRACE(1, _b("query[%p]: alloc: %d, pools: %d"), query, gst_query_get_n_allocation_params(query), gst_query_get_n_allocation_pools(query));
-            
+
             /* ...do not pass allocation request to the component */
             return GST_PAD_PROBE_DROP;
         }
@@ -334,7 +334,7 @@ static GstPadProbeReturn vsink_probe(GstPad *pad, GstPadProbeInfo *info, gpointe
             GArray *planebuf_array;
             gint n_planes;
             gint i;
-            
+
             if (!structure || !gst_structure_has_name (structure, "videosink_buffer_creation_request"))
             {
                 TRACE(DEBUG, _b("unknown query"));
@@ -342,9 +342,9 @@ static GstPadProbeReturn vsink_probe(GstPad *pad, GstPadProbeInfo *info, gpointe
             }
 
             /* ...retrieve allocation paameters from the structure */
-            gst_structure_get (structure, 
+            gst_structure_get (structure,
                                "width", G_TYPE_INT, &width,
-                               "height", G_TYPE_INT, &height, 
+                               "height", G_TYPE_INT, &height,
                                "stride", G_TYPE_ARRAY, &stride_array,
                                "dmabuf", G_TYPE_ARRAY, &dmabuf_array,
                                "planebuf", G_TYPE_ARRAY, &planebuf_array,
@@ -412,9 +412,9 @@ static GstFlowReturn vsink_new_preroll(GstAppSink *appsink, gpointer user_data)
     /* ...retrieve new sample from the pipe */
     sample = gst_app_sink_pull_preroll(sink->appsink);
     buffer = gst_sample_get_buffer(sample);
-    
+
     TRACE(0, _b("buffer: %p, timestamp: %llu"), buffer, (unsigned long long)GST_BUFFER_PTS(buffer));
- 
+
     /* ...process frame; invoke user-provided callback - hmm; think about that a bit...*/
     //r = sink->cb->process(sink, buffer, sink->cdata);
     r = 0;
@@ -432,15 +432,15 @@ static GstFlowReturn vsink_new_sample(GstAppSink *appsink, gpointer user_data)
     GstSample      *sample;
     GstBuffer      *buffer;
     int             r;
-    
+
     TRACE(DEBUG, _b("video-sink[%p]::new-samples called"), sink);
 
     /* ...retrieve new sample from the pipe */
     sample = gst_app_sink_pull_sample(sink->appsink);
     buffer = gst_sample_get_buffer(sample);
-    
+
     TRACE(0, _b("buffer: %p, timestamp: %llu"), buffer, (unsigned long long)GST_BUFFER_PTS(buffer));
- 
+
     /* ...process frame; invoke user-provided callback */
     r = sink->cb->process(sink, buffer, sink->cdata);
 
@@ -468,7 +468,7 @@ static void vsink_destroy(gpointer data)
 }
 
 /* ...sink node callbacks */
-static GstAppSinkCallbacks  vsink_callbacks = 
+static GstAppSinkCallbacks  vsink_callbacks =
 {
     .eos = vsink_eos,
     .new_preroll = vsink_new_preroll,
@@ -484,7 +484,7 @@ video_sink_t * video_sink_create(GstCaps *caps, const vsink_callback_t *cb, void
 {
     video_sink_t   *sink;
     GstPad         *pad;
-    
+
     /* ...allocate data */
     CHK_ERR(sink = malloc(sizeof(*sink)), NULL);
 
@@ -521,7 +521,7 @@ video_sink_t * video_sink_create(GstCaps *caps, const vsink_callback_t *cb, void
 
 error:
     /* ...destroy data allocated */
-    free(sink); 
+    free(sink);
     return NULL;
 }
 
