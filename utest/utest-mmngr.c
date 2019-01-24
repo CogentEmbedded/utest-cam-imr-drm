@@ -214,65 +214,61 @@ void vsp_dmabuf_unexport(vsp_dmabuf_t *dmabuf)
 }
 
 
-static inline u32 __vsp_pixfmt_size(int w, int h, u32 fmt)
+static inline u32 __vsp_pixfmt_size(int w, int h, int s, u32 fmt)
 {
     switch(fmt)
     {
-    case V4L2_PIX_FMT_GREY:     return 1 * w * h;
-    case V4L2_PIX_FMT_UYVY:     return 2 * w * h;
-    case V4L2_PIX_FMT_YUYV:     return 2 * w * h;
-    case V4L2_PIX_FMT_NV16:     return 2 * w * h;
-    case V4L2_PIX_FMT_ARGB32:   return 4 * w * h;
-    case V4L2_PIX_FMT_YUV420:   return 3 * w * h / 2;
+    case V4L2_PIX_FMT_GREY:     return (s ? : w) * h;
+    case V4L2_PIX_FMT_UYVY:     return (s ? : 2 * w) * h;
+    case V4L2_PIX_FMT_YUYV:     return (s ? : 2 * w) * h;
+    case V4L2_PIX_FMT_NV16:     return (s ? : w) * h * 2;
+    case V4L2_PIX_FMT_ARGB32:   return (s ? : 4 * w) * h;
+    case V4L2_PIX_FMT_YUV420:   return (s ? : w) * h * 3 / 2;
     default:                    return 0;
     }
 }
 
 /* ...determine planes parameters for a given format */
-static inline int __vsp_pixfmt_planes(int w, int h, u32 fmt, u32 *size, u32 *stride)
+static inline int __vsp_pixfmt_planes(int w, int h, int s, u32 fmt, u32 *size, u32 *stride)
 {
-    int     N = w * h;
-
     switch(fmt)
     {
     case V4L2_PIX_FMT_GREY:
-        return size[0] = N, stride[0] = w, 1;
+        return size[0] = (stride[0] = (s ? : w)) * h, 1;
     case V4L2_PIX_FMT_UYVY:
     case V4L2_PIX_FMT_YUYV:
-        return size[0] = N * 2, stride[0] = w * 2, 1;
+        return size[0] = (stride[0] = (s ? : 2 * w)) * h, 1;
     case V4L2_PIX_FMT_NV12:
     case V4L2_PIX_FMT_NV21:
-        return size[0] = N, size[1] = N >> 1, stride[0] = stride[1] = w, 2;
+    case V4L2_PIX_FMT_YUV420:
+        return size[0] = (stride[0] = (s ? : w)) * h * 3 / 2, 1;
     case V4L2_PIX_FMT_NV16:
     case V4L2_PIX_FMT_NV61:
-        //return size[0] = size[1] = N, stride[0] = stride[1] = w, 2;
-	 return size[0] = N * 2, stride[0] = w * 2, 1;
+        return size[0] = (stride[0] = (s ? : w)) * h * 2, 1;
     case V4L2_PIX_FMT_ARGB32:
     case V4L2_PIX_FMT_XRGB32:
-        return size[0] = N * 4, stride[0] = w * 4, 1;
-    case V4L2_PIX_FMT_YUV420:
-        return size[0] = N, size[1] = size[2] = N >> 2, stride[0] = w, stride[1] = stride[2] = w >> 1, 3;
+        return size[0] = (stride[0] = (s ? : w * 4)) * h, 1;
     default:
         return TRACE(ERROR, _b("unrecognized format: %X: %c%c%c%c"), fmt, __v4l2_fmt(fmt)), 0;
     }
 }
 
 /* ...allocate contiguous memory buffer pool */
-int vsp_allocate_buffers(int w, int h, u32 fmt, vsp_mem_t **output, int num)
+int vsp_allocate_buffers(int w, int h, int s, u32 fmt, vsp_mem_t **output, int num)
 {
     u32     size;
     int     i, n;
     u32     psize[3], stride[3], offset[3];
 
     /* ...calculate size of the buffer */
-    if ((size = __vsp_pixfmt_size(w, h, fmt)) == 0)
+    if ((size = __vsp_pixfmt_size(w, h, s, fmt)) == 0)
     {
         TRACE(ERROR, _x("unsupported format '%c%c%c%c'"), __v4l2_fmt(fmt));
         return -(errno = EINVAL);
     }
 
     /* ...calculate buffer properties */
-    if ((n = __vsp_pixfmt_planes(w, h, fmt, psize, stride)) == 0)
+    if ((n = __vsp_pixfmt_planes(w, h, s, fmt, psize, stride)) == 0)
     {
         TRACE(ERROR, _x("invalid format '%c%c%c%c'"), __v4l2_fmt(fmt));
         return -(errno = EINVAL);
@@ -312,14 +308,14 @@ error:
 }
 
 /* ...allocate contiguous memory buffer pool */
-int vsp_buffer_export(vsp_mem_t *mem, int w, int h, u32 fmt, int *dmafd, u32 *offset, u32 *stride)
+int vsp_buffer_export(vsp_mem_t *mem, int w, int h, int s, u32 fmt, int *dmafd, u32 *offset, u32 *stride)
 {
     u32     size[GST_VIDEO_MAX_PLANES], o;
     int     n;
     int     i;
 
     /* ...verify format */
-    CHK_ERR((n = __vsp_pixfmt_planes(w, h, fmt, size, stride)) > 0, -(errno = EINVAL));
+    CHK_ERR((n = __vsp_pixfmt_planes(w, h, s, fmt, size, stride)) > 0, -(errno = EINVAL));
 
     /* ...check if buffer is mapped already */
     if (mem->dmabuf)

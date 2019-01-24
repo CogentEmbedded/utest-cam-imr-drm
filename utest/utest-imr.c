@@ -284,7 +284,7 @@ static inline int __imr_check_caps(int vfd)
 }
 
 /* ...prepare IMR module for operation */
-static inline int imr_set_formats(int vfd, u32 w, u32 h, u32 W, u32 H, u32 ifmt, u32 ofmt)
+static inline int imr_set_formats(int vfd, u32 w, u32 h, u32 s, u32 W, u32 H, u32 S, u32 ifmt, u32 ofmt)
 {
 	struct v4l2_format  fmt;
 
@@ -295,12 +295,16 @@ static inline int imr_set_formats(int vfd, u32 w, u32 h, u32 W, u32 H, u32 ifmt,
 	fmt.fmt.pix.field = V4L2_FIELD_ANY;
     fmt.fmt.pix.width = w;
     fmt.fmt.pix.height = h;
+    fmt.fmt.pix.bytesperline = s;
     CHK_API(ioctl(vfd, VIDIOC_S_FMT, &fmt));
 
     TRACE(INFO, _b("requested format: %u * %u, adjusted: %u * %u"), w, h, fmt.fmt.pix.width, fmt.fmt.pix.height);
 
     /* ...verify actual width/height haven't been changed */
     CHK_ERR(!w || !h || (fmt.fmt.pix.width == w && fmt.fmt.pix.height == h), -(errno = ERANGE));
+
+    /* ...verify the stride has not changed */
+    CHK_ERR(!s || fmt.fmt.pix.bytesperline == s, -(errno = ERANGE));
 
     /* ...set output format */
     memset(&fmt, 0, sizeof(fmt));
@@ -309,12 +313,16 @@ static inline int imr_set_formats(int vfd, u32 w, u32 h, u32 W, u32 H, u32 ifmt,
 	fmt.fmt.pix.field = V4L2_FIELD_ANY;
     fmt.fmt.pix.width = W;
     fmt.fmt.pix.height = H;
+    fmt.fmt.pix.bytesperline = S;
     CHK_API(ioctl(vfd, VIDIOC_S_FMT, &fmt));
 
     TRACE(INFO, _b("requested output format: %u * %u, adjusted: %u * %u"), W, H, fmt.fmt.pix.width, fmt.fmt.pix.height);
 
     /* ...verify actual width/height haven't been changed */
     CHK_ERR(fmt.fmt.pix.width == W && fmt.fmt.pix.height == H, -(errno = ERANGE));
+
+    /* ...verify the stride has not changed */
+    CHK_ERR(!S || fmt.fmt.pix.bytesperline == S, -(errno = ERANGE));
 
     return 0;
 }
@@ -938,22 +946,22 @@ error:
 }
 
 /* ...distortion correction engine runtime initialization */
-int imr_setup(imr_data_t *imr, int i, int w, int h, int W, int H, int ifmt, int ofmt, int size)
+int imr_setup(imr_data_t *imr, int i, int w, int h, int s, int W, int H, int S, int ifmt, int ofmt, int size)
 {
     imr_device_t   *dev = &imr->dev[i];
     int             j;
 
     /* ...calculate input buffer length (may be zero) */
-    dev->input_length = __pixfmt_image_size(w, h, ifmt);
+    dev->input_length = __pixfmt_image_size(w, h, s, ifmt);
 
     /* ...output buffer length must be positive (tbd - should I care about that?) */
-    CHK_ERR(dev->output_length = __pixfmt_image_size(W, H, ofmt), -(errno = EINVAL));
+    CHK_ERR(dev->output_length = __pixfmt_image_size(W, H, S, ofmt), -(errno = EINVAL));
 
     /* ...set buffers dimensions */
     dev->w = w, dev->h = h, dev->W = W, dev->H = H;
 
     /* ...set IMR format */
-    CHK_API(imr_set_formats(dev->vfd, w, h, W, H, __pixfmt_gst_to_v4l2(ifmt), __pixfmt_gst_to_v4l2(ofmt)));
+    CHK_API(imr_set_formats(dev->vfd, w, h, s, W, H, S, __pixfmt_gst_to_v4l2(ifmt), __pixfmt_gst_to_v4l2(ofmt)));
 
     /* ...allocate buffers pool */
     CHK_ERR(dev->pool = calloc(dev->size = size, sizeof(imr_buffer_t)), -(errno = ENOMEM));
@@ -979,6 +987,7 @@ int imr_setup(imr_data_t *imr, int i, int w, int h, int W, int H, int ifmt, int 
         meta->format = ofmt;
         meta->width = W;
         meta->height = H;
+        meta->stride = S;
         GST_META_FLAG_SET(meta, GST_META_FLAG_POOLED);
 
         /* ...modify buffer release callback */

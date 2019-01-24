@@ -70,7 +70,7 @@ typedef struct imr_meta
     GstMeta             meta;
 
     /* ...buffer dimensions */
-    int                 width, height;
+    int                 width, height, stride;
 
     /* ...buffer format */
     int                 format;
@@ -116,7 +116,7 @@ extern const GstMetaInfo *imr_meta_get_info(void);
 extern imr_data_t * imr_init(char **devname, int num, camera_callback_t *cb, void *cdata);
 
 /* ...IMR device configuration */
-extern int imr_setup(imr_data_t *imr, int i, int w, int h, int W, int H, int ifmt, int ofmt, int size);
+extern int imr_setup(imr_data_t *imr, int i, int w, int h, int s, int W, int H, int S, int ifmt, int ofmt, int size);
 
 /* ...start IMR operation */
 extern int imr_start(imr_data_t *imr);

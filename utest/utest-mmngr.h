@@ -63,9 +63,9 @@ extern int vsp_dmabuf_fd(vsp_dmabuf_t *dmabuf);
 extern void vsp_dmabuf_unexport(vsp_dmabuf_t *dmabuf);
 
 /* ...memory buffer pool allocation */
-extern int vsp_allocate_buffers(int w, int h, u32 fmt, vsp_mem_t **output, int num);
+extern int vsp_allocate_buffers(int w, int h, int s, u32 fmt, vsp_mem_t **output, int num);
 
 /* ...export DMA file-descriptor representing contiguous block */
-extern int vsp_buffer_export(vsp_mem_t *mem, int w, int h, u32 format, int *dmafd, u32 *offset, u32 *stride);
+extern int vsp_buffer_export(vsp_mem_t *mem, int w, int h, int s, u32 format, int *dmafd, u32 *offset, u32 *stride);
 
 #endif  /* __UTEST_MMNGR_H */

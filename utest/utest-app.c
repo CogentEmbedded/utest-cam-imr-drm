@@ -279,7 +279,8 @@ static int imr_buffer_allocate(void *cdata, int i, GstBuffer *buffer)
 {
     app_data_t     *app = cdata;
     imr_meta_t     *meta = gst_buffer_get_imr_meta(buffer);
-    int             w = meta->width, h = meta->height, format = meta->format;
+    int             w = meta->width, h = meta->height, s = meta->stride;
+    int             format = meta->format;
     int             j = meta->index;
     int             dmafd[GST_VIDEO_MAX_PLANES];
     u32             offset[GST_VIDEO_MAX_PLANES];
@@ -295,7 +296,7 @@ static int imr_buffer_allocate(void *cdata, int i, GstBuffer *buffer)
     meta->priv = app->camera_plane[i][j];
     
     /* ...create DMA buffers for a memory chunk */
-    CHK_API(vsp_buffer_export(meta->priv, w, h, __pixfmt_gst_to_v4l2(format), dmafd, offset, stride));
+    CHK_API(vsp_buffer_export(meta->priv, w, h, s, __pixfmt_gst_to_v4l2(format), dmafd, offset, stride));
 
     /* ...create a texture for visualization */
     CHK_ERR(meta->priv2 = texture_create(w, h, format, dmafd, offset, stride), -1);
@@ -531,6 +532,7 @@ static int app_context_init(widget_data_t *widget, void *data)
     window_data_t  *window = (window_data_t *)widget;
     int             w = window_get_width(window);
     int             h = window_get_height(window);
+    int             __vin_stride = (__vin_width + 255) & ~255;
     int             fmt = __pixfmt_v4l2_to_gst(__vin_format);
     int             W = w / 2, H = h / 2;
     int             i;
@@ -545,7 +547,7 @@ static int app_context_init(widget_data_t *widget, void *data)
     CHK_ERR(app->imr = imr_init(imr_dev_name, cameras_number, &imr_cb, app), -1);
     
     /* ...allocate output buffers for IMR */
-    CHK_API(vsp_allocate_buffers(W, H, __vin_format, &app->camera_plane[0][0], cameras_number * VSP_POOL_SIZE));
+    CHK_API(vsp_allocate_buffers(W, H, 0, __vin_format, &app->camera_plane[0][0], cameras_number * VSP_POOL_SIZE));
 
     /* ...prepare IMR configuration descriptor for camera-planes */
     c_type = IMR_MAP_TME | IMR_MAP_BFE | IMR_MAP_AUTODG | 0*IMR_MAP_TCM;
@@ -555,7 +557,7 @@ static int app_context_init(widget_data_t *widget, void *data)
     for (i = 0; i < cameras_number; i++)
     {
         /* ...configure VIN device */
-        CHK_API(vin_device_configure(app->vin, i, __vin_width, __vin_height, __vin_format, __vin_buffers_num));
+        CHK_API(vin_device_configure(app->vin, i, __vin_width, __vin_height, __vin_stride, __vin_format, __vin_buffers_num));
     }
 
     /* ...setup VINs */
@@ -565,7 +567,7 @@ static int app_context_init(widget_data_t *widget, void *data)
         CHK_API(vin_device_init(app->vin, i, __vin_width, __vin_height, __vin_format, __vin_buffers_num));
 
         /* ...setup IMR engine to do a simple scaling */
-        CHK_API(imr_setup(app->imr, i, __vin_width, __vin_height, W, H, fmt, fmt, VSP_POOL_SIZE));
+        CHK_API(imr_setup(app->imr, i, __vin_width, __vin_height, __vin_stride, W, H, 0, fmt, fmt, VSP_POOL_SIZE));
 
         /* ...allocate engine configuration */
         CHK_ERR(app->cfg[i] = imr_cfg_create(c_type, IMR_CFG_CAMERA_SIZE * sizeof(dl_abs_t)), -1);

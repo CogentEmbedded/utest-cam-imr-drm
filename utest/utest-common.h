@@ -459,20 +459,20 @@ static inline u32 __pixfmt_gst_to_v4l2(int format)
 }
 
 /* ...image size determination */
-static inline u32 __pixfmt_image_size(u32 w, u32 h, GstVideoFormat format)
+static inline u32 __pixfmt_image_size(u32 w, u32 h, u32 s, GstVideoFormat format)
 {
     switch (format)
     {
-    case GST_VIDEO_FORMAT_ARGB:         return w * h * 4;
-    case GST_VIDEO_FORMAT_RGB16:        return w * h * 2;
-    case GST_VIDEO_FORMAT_NV16:         return w * h * 2;
-    case GST_VIDEO_FORMAT_UYVY:         return w * h * 2;
-    case GST_VIDEO_FORMAT_YUY2:         return w * h * 2;
-    case GST_VIDEO_FORMAT_YVYU:         return w * h * 2;
-    case GST_VIDEO_FORMAT_NV12:         return w * h * 3 / 2;
-    case GST_VIDEO_FORMAT_I420:         return w * h * 3 / 2;
-    case GST_VIDEO_FORMAT_GRAY8:        return w * h;
-    case GST_VIDEO_FORMAT_GRAY16_BE:    return w * h * 2;
+    case GST_VIDEO_FORMAT_ARGB:         return (s ? : w * 4) * h;
+    case GST_VIDEO_FORMAT_RGB16:        return (s ? : w * 2) * h;
+    case GST_VIDEO_FORMAT_NV16:         return (s ? : w) * h * 2;
+    case GST_VIDEO_FORMAT_UYVY:         return (s ? : w * 2) * h;
+    case GST_VIDEO_FORMAT_YUY2:         return (s ? : w * 2) * h;
+    case GST_VIDEO_FORMAT_YVYU:         return (s ? : w * 2) * h;
+    case GST_VIDEO_FORMAT_NV12:         return (s ? : w) * h * 3 / 2;
+    case GST_VIDEO_FORMAT_I420:         return (s ? : w) * h * 3 / 2;
+    case GST_VIDEO_FORMAT_GRAY8:        return (s ? : w) * h;
+    case GST_VIDEO_FORMAT_GRAY16_BE:    return (s ? : w * 2) * h;
     default:                            return 0;
     }
 }

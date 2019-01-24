@@ -280,7 +280,7 @@ static inline int __vin_check_caps(int vfd)
 }
 
 /* ...prepare VIN module for operation */
-static inline int vin_set_formats(int vfd, int width, int height, u32 format)
+static inline int vin_set_formats(int vfd, int width, int height, int s, u32 format)
 {
 	struct v4l2_format  fmt;
     struct v4l2_cropcap cropcap;
@@ -308,7 +308,11 @@ static inline int vin_set_formats(int vfd, int width, int height, u32 format)
     fmt.fmt.pix.field = V4L2_FIELD_ANY;
     fmt.fmt.pix.width = width;
     fmt.fmt.pix.height = height;
+    fmt.fmt.pix.bytesperline = s;
     CHK_API(ioctl(vfd, VIDIOC_S_FMT, &fmt));
+
+    /* ...verify the stride has not changed */
+    CHK_ERR(!s || fmt.fmt.pix.bytesperline == (u32)s, -(errno = ERANGE));
 
     return 0;
 }
@@ -719,7 +723,7 @@ static inline int __v4l2_pixfmt_planes(int w, int h, u32 fmt, u32 *size, u32 *st
 }
 
 /* ...runtime configure */
-int vin_device_configure(vin_data_t *vin, int i, int w, int h, u32 fmt, int size)
+int vin_device_configure(vin_data_t *vin, int i, int w, int h, int s, u32 fmt, int size)
 {
     vin_device_t   *dev = &vin->dev[i];
 
@@ -727,7 +731,7 @@ int vin_device_configure(vin_data_t *vin, int i, int w, int h, u32 fmt, int size
     CHK_ERR((u32)i < (u32)vin->num, -(errno = EINVAL));
 
     /* ...set VIN format */
-    CHK_API(vin_set_formats(dev->vfd, w, h, fmt));
+    CHK_API(vin_set_formats(dev->vfd, w, h, s, fmt));
 
     return 0;
 }
