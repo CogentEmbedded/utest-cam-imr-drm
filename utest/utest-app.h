@@ -57,7 +57,7 @@ extern char * imr_dev_name[];
 extern u32  __vin_format;
 
 /* ...camera dimensions */
-extern int  __vin_width, __vin_height;
+extern int  __vin_width, __vin_height, __vin_stride;
 
 /* ...number of buffers to allocate */
 extern int  __vin_buffers_num;

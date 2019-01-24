@@ -27,6 +27,6 @@
 #ifndef UTEST_PNG_H
 #define UTEST_PNG_H
 
-extern int store_png(const char *otp_id, int index ,int width, int height, int format, void *data);
+extern int store_png(const char *otp_id, int index ,int width, int height, int s, int format, void *data);
 
 #endif  /* UTEST_PNG_H */

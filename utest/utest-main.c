@@ -68,7 +68,7 @@ char   *joystick_dev_name = "/dev/input/js0";
 int support_stdin = 0;
 /* ...input (VIN) format */
 u32     __vin_format = V4L2_PIX_FMT_UYVY;
-int     __vin_width = 1280, __vin_height = 800;
+int     __vin_width = 1280, __vin_height = 800, __vin_stride = (1280 + 255) & ~255;
 int     __vin_buffers_num = 6;
 
 /* ...VSP dimensions */
@@ -190,6 +190,7 @@ static int parse_cmdline(int argc, char **argv)
             /* ...parse resolution */
             TRACE(INIT, _b("Width: '%s'"), optarg);
             CHK_ERR((u32)(__vin_width = atoi(optarg)) < 4096, -(errno = EINVAL));
+            __vin_stride = (__vin_width + 255) & ~255;
             break;
 
         case 'h':

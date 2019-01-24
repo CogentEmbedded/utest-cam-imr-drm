@@ -85,7 +85,7 @@ static inline void yuv444_to_rgb888(uint8_t yValue, uint8_t uValue, uint8_t vVal
     *b = CLAMP(bTmp, 0, 255);
 }
 
-void uyvy_to_rgb(uint8_t* yuv_data, uint8_t* rgb_data, ssize_t width, ssize_t height)
+void uyvy_to_rgb(uint8_t* yuv_data, uint8_t* rgb_data, ssize_t width, ssize_t height, ssize_t stride)
 {
     uyvy_pixel_t* yuv_pixel = (uyvy_pixel_t*) yuv_data;
     rgb_pixel_t* rgb_pixel = (rgb_pixel_t*) rgb_data;
@@ -99,9 +99,12 @@ void uyvy_to_rgb(uint8_t* yuv_data, uint8_t* rgb_data, ssize_t width, ssize_t he
                          &(rgb_pixel->r), &(rgb_pixel->g), &(rgb_pixel->b));
         rgb_pixel++;
         yuv_pixel++;
+
+        if ((i + 1) % (width/4) == 0)
+            yuv_pixel += (stride-width)/4;
     }
 }
-void yuyv_to_rgb(guint8* yuv_data, guint8* rgb_data, ssize_t width, ssize_t height)
+void yuyv_to_rgb(guint8* yuv_data, guint8* rgb_data, ssize_t width, ssize_t height, ssize_t stride)
 {
     yuyv_pixel_t* yuv_pixel = (yuyv_pixel_t*) yuv_data;
     rgb_pixel_t* rgb_pixel = (rgb_pixel_t*) rgb_data;
@@ -115,12 +118,15 @@ void yuyv_to_rgb(guint8* yuv_data, guint8* rgb_data, ssize_t width, ssize_t heig
                          &(rgb_pixel->r), &(rgb_pixel->g), &(rgb_pixel->b));
         rgb_pixel++;
         yuv_pixel++;
+
+        if ((i + 1) % (width/4) == 0)
+            yuv_pixel += (stride-width)/4;
     }
 }
-void nv16_to_rgb(guint8* nv16_data, guint8* rgb_data, ssize_t width, ssize_t height)
+void nv16_to_rgb(guint8* nv16_data, guint8* rgb_data, ssize_t width, ssize_t height, ssize_t stride)
 {
     guint8* y_pixel = nv16_data;
-    guint8* uv_pixel = nv16_data + (width * height);
+    guint8* uv_pixel = nv16_data + (stride * height);
     rgb_pixel_t* rgb_pixel = (rgb_pixel_t*) rgb_data;
     int i = 0;
     for (i = 0; i < (width * height / 2); i++)
@@ -133,6 +139,11 @@ void nv16_to_rgb(guint8* nv16_data, guint8* rgb_data, ssize_t width, ssize_t hei
         rgb_pixel++;
         y_pixel += 2;
         uv_pixel += 2;
+
+        if ((i + 1) % (width/2) == 0) {
+            y_pixel += (stride-width);
+            uv_pixel += (stride-width);
+        }
     }
 }
 static void
@@ -176,7 +187,7 @@ static __attribute__((noreturn))  void __write_error(png_structp png_ptr, png_co
 }
 
 /* ...write PNG file */
-int store_png(const char *otp_id, int index ,int width, int height, int format, void *data)
+int store_png(const char *otp_id, int index ,int width, int height, int s, int format, void *data)
 {
 	FILE                   *fp;
 	int                     y, stride = 0;
@@ -244,11 +255,11 @@ int store_png(const char *otp_id, int index ,int width, int height, int format, 
     pixbuf = malloc(stride * height* 3);
 
     if (__vin_format == V4L2_PIX_FMT_NV16)
-        nv16_to_rgb(data, pixbuf, width, height);
+        nv16_to_rgb(data, pixbuf, width, height, s);
     else if (__vin_format == V4L2_PIX_FMT_UYVY)
-        uyvy_to_rgb(data, pixbuf, width, height);
+        uyvy_to_rgb(data, pixbuf, width, height, s);
     else if (__vin_format == V4L2_PIX_FMT_YUYV)
-        yuyv_to_rgb(data, pixbuf, width, height);
+        yuyv_to_rgb(data, pixbuf, width, height, s);
 
     for (i = 0; i < height; i++)
         rows[i] = pixbuf + i * stride;

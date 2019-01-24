@@ -53,7 +53,7 @@ typedef struct vsink_meta
     void               *priv;
 
     /* ...buffer dimensions */
-    int                 width, height;
+    int                 width, height, s;
 
     /* ...video format type */
     GstVideoFormat      format;

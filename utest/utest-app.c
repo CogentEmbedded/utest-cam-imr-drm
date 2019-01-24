@@ -532,7 +532,6 @@ static int app_context_init(widget_data_t *widget, void *data)
     window_data_t  *window = (window_data_t *)widget;
     int             w = window_get_width(window);
     int             h = window_get_height(window);
-    int             __vin_stride = (__vin_width + 255) & ~255;
     int             fmt = __pixfmt_v4l2_to_gst(__vin_format);
     int             W = w / 2, H = h / 2;
     int             i;
@@ -564,7 +563,7 @@ static int app_context_init(widget_data_t *widget, void *data)
     for (i = 0; i < cameras_number; i++)
     {
         /* ...setup VIN device */
-        CHK_API(vin_device_init(app->vin, i, __vin_width, __vin_height, __vin_format, __vin_buffers_num));
+        CHK_API(vin_device_init(app->vin, i, __vin_width, __vin_height, __vin_stride, __vin_format, __vin_buffers_num));
 
         /* ...setup IMR engine to do a simple scaling */
         CHK_API(imr_setup(app->imr, i, __vin_width, __vin_height, __vin_stride, W, H, 0, fmt, fmt, VSP_POOL_SIZE));

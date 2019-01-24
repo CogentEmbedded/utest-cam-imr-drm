@@ -636,7 +636,7 @@ int vin_device_snapshot(vin_data_t *vin, int i, void *data)
     vsink_meta_t     *meta = gst_buffer_get_vsink_meta(data);
     vin_device_t   *dev = &vin->dev[i];
 
-    return store_png(dev->otpid, dev->snapshot_index++,  meta->width, meta->height, meta->format, meta->plane[0]);
+    return store_png(dev->otpid, dev->snapshot_index++,  meta->width, meta->height, meta->s, meta->format, meta->plane[0]);
 }
 /*******************************************************************************
  * Buffer pool handling
@@ -737,7 +737,7 @@ int vin_device_configure(vin_data_t *vin, int i, int w, int h, int s, u32 fmt, i
 }
 
 /* ...runtime initialization */
-int vin_device_init(vin_data_t *vin, int i, int w, int h, u32 fmt, int size)
+int vin_device_init(vin_data_t *vin, int i, int w, int h, int s, u32 fmt, int size)
 {
     vin_device_t   *dev = &vin->dev[i];
     int         j;
@@ -780,6 +780,7 @@ int vin_device_init(vin_data_t *vin, int i, int w, int h, u32 fmt, int size)
         CHK_ERR(vmeta = gst_buffer_add_vsink_meta(buffer), -ENOMEM);
         vmeta->width = w;
         vmeta->height = h;
+        vmeta->s = s;
         vmeta->format = __pixfmt_v4l2_to_gst(fmt);
         CHK_ERR((n = __v4l2_pixfmt_planes(w, h, fmt, size, vmeta->stride)) > 0, -(errno = EINVAL));
         CHK_API(vin_export_buffers(dev->vfd, j, vmeta->dmafd));
