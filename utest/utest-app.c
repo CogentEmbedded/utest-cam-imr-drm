@@ -500,7 +500,7 @@ static int __camera_cfg_setup(app_data_t *app, int id, int w, int h, int W, int 
             float Y = (float)y / (H << DL_DST_SUBSAMPLE);
             
             /* ...{x,y} is a point in destination space; get associated point in source space */
-            u16     u = (u16)(X * (w << DL_SRC_SUBSAMPLE));
+            u16     u = (u16)(X * ((w << DL_SRC_SUBSAMPLE) - 1));
             u16     v = (u16)(Y * (h << DL_SRC_SUBSAMPLE));
 
             TRACE(0, _b("x,y=%u,%u, X,Y=%f,%f, u,v=%u,%u"), x, y, X, Y, u, v);
