@@ -400,7 +400,7 @@ static inline int imr_buffers_enqueue(int vfd, int j, int ifd, u32 ilen, int ofd
 {
     struct v4l2_buffer  buf;
 
-    TRACE(DEBUG, _b("enqueue: j=%d, ifd=%d, ofd=%d"), j, ifd, ofd);
+    TRACE(DEBUG, _b("enqueue: j=%d, ifd=%d, ofd=%d, ilen=%d"), j, ifd, ofd, ilen);
     
     /* ...prepare input buffer */
     memset(&buf, 0, sizeof(buf));

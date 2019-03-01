@@ -190,7 +190,6 @@ static int parse_cmdline(int argc, char **argv)
             /* ...parse resolution */
             TRACE(INIT, _b("Width: '%s'"), optarg);
             CHK_ERR((u32)(__vin_width = atoi(optarg)) < 4096, -(errno = EINVAL));
-            __vin_stride = (__vin_width + 255) & ~255;
             break;
 
         case 'h':
@@ -222,13 +221,25 @@ static int parse_cmdline(int argc, char **argv)
             TRACE(INIT, _b("Number of cameras: '%s'"), optarg);
             CHK_ERR((u32)(cameras_number = atoi(optarg)) < 5, -(errno = EINVAL));
             break;
-	case 'i':
+
+        case 'i':
             TRACE(INIT, _b("Use stdin to capture camera images"));
             support_stdin = 1;
             break;
         default:
             return -EINVAL;
         }
+    }
+
+    switch (__vin_format)
+    {
+    case V4L2_PIX_FMT_UYVY:
+    case V4L2_PIX_FMT_YUYV:
+        __vin_stride = ((2 * __vin_width) + 255) & ~255;
+        break;
+    default:
+        __vin_stride = (__vin_width + 255) & ~255;
+        break;
     }
 
     return 0;
