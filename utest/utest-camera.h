@@ -27,9 +27,6 @@
 #ifndef __UTEST_CAMERA_H
 #define __UTEST_CAMERA_H
 
-/* ...opaque camera data handle */
-typedef struct camera_data  camera_data_t;
-
 /*******************************************************************************
  * Camera interface
  ******************************************************************************/

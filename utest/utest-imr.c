@@ -296,9 +296,10 @@ static inline int imr_set_formats(int vfd, u32 w, u32 h, u32 s, u32 W, u32 H, u3
     fmt.fmt.pix.width = w;
     fmt.fmt.pix.height = h;
     fmt.fmt.pix.bytesperline = s;
-    CHK_API(ioctl(vfd, VIDIOC_S_FMT, &fmt));
 
-    TRACE(INFO, _b("requested format: %u * %u, adjusted: %u * %u"), w, h, fmt.fmt.pix.width, fmt.fmt.pix.height);
+    TRACE(INFO, _b("requested format: %u * %u, adjusted: %u * %u * %u"), w, h, fmt.fmt.pix.width, fmt.fmt.pix.height, s);
+
+    CHK_API(ioctl(vfd, VIDIOC_S_FMT, &fmt));
 
     /* ...verify actual width/height haven't been changed */
     CHK_ERR(!w || !h || (fmt.fmt.pix.width == w && fmt.fmt.pix.height == h), -(errno = ERANGE));

@@ -1,6 +1,9 @@
 cmake_minimum_required (VERSION 2.8)
 project("utest")
 
+find_package(CCamera REQUIRED)
+include_directories(${CCamera_INCLUDE_DIRS})
+
 if(CMAKE_BUILD_TOOL MATCHES "(msdev|devenv|nmake|MSBuild)")
     add_definitions("/W2")
 else()
@@ -36,6 +39,7 @@ target_link_libraries(utest-cam-imr-drm
   "z"
   "spnav"
   "input"
+  ccamera
   )
 
 set_target_properties(utest-cam-imr-drm PROPERTIES SKIP_BUILD_RPATH ON)

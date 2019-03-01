@@ -27,15 +27,11 @@
 #ifndef __UTEST_VIN_H
 #define __UTEST_VIN_H
 
-typedef struct vin_data    *vin_data_t;
+typedef struct camera_data    *camera_data_t;
 
-extern vin_data_t * vin_init(char **devname, int num, camera_callback_t *cb, void *cdata);
+extern camera_data_t **camera_init(char **devname, int num, int w, int h, u32 fmt, camera_callback_t *cb, void *cdata);
 
-extern int vin_device_configure(vin_data_t *vin, int i, int w, int h, int s, u32 fmt, int size);
-extern int vin_device_init(vin_data_t *vin, int i, int w, int h, int s, u32 fmt, int size);
-extern int vin_device_snapshot(vin_data_t *vin, int i, void *data);
-
-extern int vin_start(vin_data_t *vin);
+extern int camera_start(camera_data_t *vin);
 
 #endif  /* __UTEST_VIN_H */
 

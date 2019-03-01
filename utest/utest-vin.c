@@ -33,13 +33,8 @@
 #include "utest-common.h"
 #include "utest-camera.h"
 #include "utest-vsink.h"
-#include "utest-png.h"
-#include <fcntl.h>
-#include <sys/ioctl.h>
-#include <sys/mman.h>
-#include <sys/epoll.h>
-#include <linux/version.h>
-#include <linux/videodev2.h>
+#include <ccamera.h>
+#include <ccamera/ccamera-memory-dma.h>
 
 /*******************************************************************************
  * Tracing configuration
@@ -60,66 +55,14 @@ TRACE_TAG(DEBUG, 0);
  * Local types definitions
  ******************************************************************************/
 
-/* ...buffer description */
-typedef struct vin_buffer
+/* ...decoder data structure */
+typedef struct camera_data
 {
-    /* ...data pointer */
-    void               *data;
-    
-    /* ...memory offset */
-    u32                 offset;
+    char *name;
 
-    /* ...buffer length */
-    u32                 length;
+    int camera_fd;
 
-    /* ...associated GStreamer buffer */
-    GstBuffer          *buffer;
-    
-}   vin_buffer_t;
-
-/* ...particular video device */
-typedef struct vin_device
-{
-    /* ...V4L2 device descriptor */
-    int                     vfd;
-
-    /* ...output buffers pool length */
-    int                     size;
-    
-    /* ...buffers pool */
-    vin_buffer_t           *pool;
-
-    /* ...streaming status */
-    int                     active;
-
-    /* ...number of submitted buffers */
-    int                     submitted;
-
-    /* ...number of busy buffers (owned by application) */
-    int                     busy;
-
-    /* ...conditional variable for busy buffers collection */
-    pthread_cond_t          wait;
-
-    char                   otpid[OTP_ID_NAME_SIZE];
-
-    int                    snapshot_index;
-}   vin_device_t;
-    
-/* ...decoder data structure */   
-typedef struct vin_data
-{
-    /* ...GStreamer bin element for pipeline handling */
-    GstElement                 *bin;
-
-    /* ...single epoll-descriptor */
-    int                         efd;
-
-    /* ...number of devices connected */
-    int                         num;
-    
-    /* ...device-specific data */
-    vin_device_t               *dev;
+    int camera_id;
 
     /* ...decoder activity state */
     int                         active;
@@ -127,7 +70,6 @@ typedef struct vin_data
     /* ...queue access lock */
     pthread_mutex_t             lock;
 
-    /* ...decoding thread - tbd - make it a data source for GMainLoop? */
     pthread_t                   thread;
 
     /* ...decoding thread conditional variable */
@@ -139,7 +81,7 @@ typedef struct vin_data
     /* ...application callback data */
     void                       *cdata;
 
-}   vin_data_t;
+}   camera_data_t;
 
 /*******************************************************************************
  * Custom buffer metadata implementation
@@ -153,8 +95,7 @@ typedef struct vin_meta
     /* ...camera identifier */
     int                 camera_id;
 
-    /* ...buffer index in the camera pool */
-    int                 index;
+    camera_buf_t        *buffer;
 
 }   vin_meta_t;
 
@@ -245,363 +186,130 @@ const GstMetaInfo * vin_meta_get_info(void)
     return meta_info;
 }
 
-/*******************************************************************************
- * V4L2 VIN interface helpers
- ******************************************************************************/
-
-/* ...check video device capabilities */
-static inline int __vin_check_caps(int vfd)
+/* ...output buffer dispose function (called in response to "gst_buffer_unref") */
+static gboolean __output_buffer_dispose(GstMiniObject *obj)
 {
-	struct v4l2_capability  cap;
-    u32                     caps;
-    
-    /* ...query device capabilities */
-    CHK_API(ioctl(vfd, VIDIOC_QUERYCAP, &cap));
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
-    caps = cap.device_caps;
-#else
-    caps = cap.capabilities;
-#endif
+    GstBuffer      *buffer = GST_BUFFER(obj);
+    camera_data_t  *camera_data = (camera_data_t *)buffer->pool;
+    vin_meta_t     *meta = gst_buffer_get_vin_meta(buffer);
+    int             i = meta->camera_id;
+    camera_buf_t *camera_buffer = meta->buffer;
+    gboolean        destroy;
 
-    /* ...check for a required capabilities */
-    if (!(caps & V4L2_CAP_VIDEO_CAPTURE))
-    {
-        TRACE(ERROR, _x("single-planar output expected: %X"), caps);
-        return -1;
-    }
-    else if (!(caps & V4L2_CAP_STREAMING))
-    {
-        TRACE(ERROR, _x("streaming I/O is expected: %X"), caps);
-        return -1;
-    }
+    /* ...lock internal data access */
+    pthread_mutex_lock(&camera_data->lock);
 
-    /* ...all good */
-    return 0;
-}
+    camera_release_buffer(camera_buffer);
 
-/* ...prepare VIN module for operation */
-static inline int vin_set_formats(int vfd, int width, int height, int s, u32 format)
-{
-	struct v4l2_format  fmt;
-    struct v4l2_cropcap cropcap;
-    struct v4l2_crop crop;
+    /* ...release data access lock */
+    pthread_mutex_unlock(&camera_data->lock);
 
-    /* set window */
-    memset(&cropcap, 0, sizeof(cropcap));
-    cropcap.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    if (0 == CHK_API(ioctl(vfd, VIDIOC_CROPCAP, &cropcap))) {
-        crop.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        crop.c = cropcap.bounds;
+    destroy = TRUE;
 
-        /* center window */
-        crop.c.left = (cropcap.bounds.width - width) / 2;
-        crop.c.top = (cropcap.bounds.height - height) / 2;
-        crop.c.width = width;
-        crop.c.height = height;
-        CHK_API(ioctl(vfd, VIDIOC_S_CROP, &crop));
-    }
-
-    /* ...set output format (single-plane NV12/NV16/UYVY? - tbd) */
-    memset(&fmt, 0, sizeof(fmt));
-    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    fmt.fmt.pix.pixelformat = format;
-    fmt.fmt.pix.field = V4L2_FIELD_ANY;
-    fmt.fmt.pix.width = width;
-    fmt.fmt.pix.height = height;
-    fmt.fmt.pix.bytesperline = s;
-    CHK_API(ioctl(vfd, VIDIOC_S_FMT, &fmt));
-
-    /* ...verify the stride has not changed */
-    CHK_ERR(!s || fmt.fmt.pix.bytesperline == (u32)s, -(errno = ERANGE));
-
-    return 0;
-}
-
-/* ...start/stop streaming on specific V4L2 device */
-static inline int vin_streaming_enable(int vfd, int enable)
-{
-    int     type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    
-    return CHK_API(ioctl(vfd, (enable ? VIDIOC_STREAMON : VIDIOC_STREAMOFF), &type));
-}
-
-/* ...allocate buffer pool */
-static inline int vin_allocate_buffers(int vfd, vin_buffer_t *pool, int num)
-{
-    struct v4l2_requestbuffers  reqbuf;
-    struct v4l2_buffer          buf;
-    int                         j;
-
-    /* ...all buffers are allocated by kernel */
-    memset(&reqbuf, 0, sizeof(reqbuf));
-    reqbuf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    reqbuf.memory = V4L2_MEMORY_MMAP;
-    reqbuf.count = num;
-    CHK_API(ioctl(vfd, VIDIOC_REQBUFS, &reqbuf));
-    CHK_ERR(reqbuf.count == (u32)num, -(errno = ENOMEM));
-
-    /* ...prepare query data */
-    memset(&buf, 0, sizeof(buf));
-    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    buf.memory = V4L2_MEMORY_MMAP;
-    for (j = 0; j < num; j++)
-    {
-        vin_buffer_t   *_buf = &pool[j];
-
-        /* ...query buffer */
-        buf.index = j;
-        CHK_API(ioctl(vfd, VIDIOC_QUERYBUF, &buf));
-        _buf->length = buf.length;
-        _buf->offset = buf.m.offset;
-        _buf->data = mmap(NULL, _buf->length, PROT_READ | PROT_WRITE, MAP_SHARED, vfd, _buf->offset);
-        CHK_ERR(_buf->data != MAP_FAILED, -errno);
-
-        TRACE(DEBUG, _b("output-buffer-%d mapped: %p[%08X] (%u bytes)"), j, _buf->data, _buf->offset, _buf->length);
-    }
-
-    /* ...start streaming as soon as we allocated buffers */
-    CHK_API(vin_streaming_enable(vfd, 1));
-
-    TRACE(INFO, _b("buffer-pool allocated (%u buffers)"), num);
-
-    return 0;
-}
-
-/* ...export DMA file-descriptors for buffers */
-static inline int vin_export_buffers(int vfd, int j, int *dmafd)
-{
-    struct v4l2_exportbuffer    expbuf;
-    
-    /* ...emit request */
-    memset(&expbuf, 0, sizeof(expbuf));
-    expbuf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    expbuf.index = j;
-    CHK_API(ioctl(vfd, VIDIOC_EXPBUF, &expbuf));
-
-    /* ...we have single plane only */
-    dmafd[0] = expbuf.fd;
-
-    return 0;
-}
-
-/* ...allocate output/capture buffer pool */
-static inline int vin_destroy_buffers(int vfd, vin_buffer_t *pool, int num)
-{
-    struct v4l2_requestbuffers  reqbuf;
-    int                         j;
-
-    /* ...stop streaming before doing anything */
-    CHK_API(vin_streaming_enable(vfd, 0));
-
-    /* ...unmap all buffers */
-    for (j = 0; j < num; j++)
-    {
-        munmap(pool[j].data, pool[j].length);
-    }
-
-    /* ...release kernel-allocated buffers */
-    memset(&reqbuf, 0, sizeof(reqbuf));
-    reqbuf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    reqbuf.memory = V4L2_MEMORY_MMAP;
-    reqbuf.count = 0;
-    CHK_API(ioctl(vfd, VIDIOC_REQBUFS, &reqbuf));
-
-    TRACE(INFO, _b("buffer-pool destroyed (%d buffers)"), num);
-
-    return 0;
-}
-
-/* ...enqueue output buffer */
-static inline int vin_output_buffer_enqueue(int vfd, int j)
-{
-    struct v4l2_buffer  buf;
-
-    /* ...set buffer parameters */
-    memset(&buf, 0, sizeof(buf));
-    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    buf.memory = V4L2_MEMORY_MMAP;
-    buf.index = j;
-    CHK_API(ioctl(vfd, VIDIOC_QBUF, &buf));
-
-    return 0;
-}
-
-/* ...dequeue input buffer */
-static inline int vin_output_buffer_dequeue(int vfd, u64 *ts, u32 *seq)
-{
-    struct v4l2_buffer  buf;
-
-    /* ...set buffer parameters */
-    memset(&buf, 0, sizeof(buf));
-    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    buf.memory = V4L2_MEMORY_MMAP;
-    CHK_API(ioctl(vfd, VIDIOC_DQBUF, &buf));
-    (ts ? *ts = buf.timestamp.tv_sec * 1000000ULL + buf.timestamp.tv_usec : 0);
-    (seq ? *seq = buf.sequence : 0);
-    
-    return buf.index;
-}
-
-
-/*******************************************************************************
- * V4L2 decoder thread
- ******************************************************************************/
-
-/* ...add device to the poll sources */
-static inline int __register_poll(vin_data_t *vin, int i, int add)
-{
-    vin_device_t       *dev = &vin->dev[i];
-    struct epoll_event  event;
-
-    /* ...specify waiting flags */
-    event.events = EPOLLIN, event.data.u32 = (u32)i;
-
-    /* ...add/remove source */
-    CHK_API(epoll_ctl(vin->efd, (add ? EPOLL_CTL_ADD : EPOLL_CTL_DEL), dev->vfd, &event));
-
-    TRACE(DEBUG, _b("#%d: poll source %s"), i, (add ? "added" : "removed"));
-
-    return 0;
-}
-
-/* ...submit buffer to the device (called with a decoder lock held) */
-static inline int __submit_buffer(vin_data_t *vin, int i, int j)
-{
-    vin_device_t   *dev = &vin->dev[i];
-
-    /* ...submit a buffer */
-    CHK_API(vin_output_buffer_enqueue(dev->vfd, j));
-
-    /* ...prepare output buffer if needed */
-    (vin->cb->prepare ? vin->cb->prepare(vin->cdata, i, dev->pool[i].buffer) : 0);
-
-    /* ...register poll if needed */
-    CHK_API(dev->submitted++ == 0 ? __register_poll(vin, i, 1) : 0);
-
-    TRACE(DEBUG, _b("enqueue buffer #<%d,%d>"), i, j);    
-
-    return 0;
+    return destroy;
 }
 
 /* ...buffer processing function */
-static inline int __process_buffer(vin_data_t *vin, int i)
+static inline int __process_buffer(camera_data_t *camera_data, camera_buf_t *cam_buf)
 {
-    vin_device_t   *dev = &vin->dev[i];
     GstBuffer      *buffer;
     int             j;
     u64             ts;
     u32             seq;
-    
-    /* ...if streaming is disabled already, bail out (hmm - tbd) */
-    BUG(!dev->active, _x("vin-%d: invalid state"), i);
+    vin_meta_t     *meta;
+    vsink_meta_t   *vmeta;
 
-    /* ...get buffer from a device */
-    CHK_API(j = vin_output_buffer_dequeue(dev->vfd, &ts, &seq));
+    CHK_ERR(buffer = gst_buffer_new(), -ENOMEM);
 
-    /* ...remove poll-source if last buffer is dequeued */
-    (--dev->submitted == 0 ? __register_poll(vin, i, 0) : 0);
+    CHK_ERR(meta = gst_buffer_add_vin_meta(buffer), -ENOMEM);
+    meta->camera_id = camera_data->camera_id;
+    meta->buffer = cam_buf;
+    GST_META_FLAG_SET(meta, GST_META_FLAG_POOLED);
 
-    /* ...get buffer descriptor */
-    buffer = dev->pool[j].buffer;
-    
+    /* ...add vsink metadata */
+    CHK_ERR(vmeta = gst_buffer_add_vsink_meta(buffer), -ENOMEM);
+    vmeta->width = cam_buf->width;
+    vmeta->height = cam_buf->height;
+    vmeta->format = GST_VIDEO_FORMAT_UYVY;
+
+    vmeta->dmafd[0] = camera_buffer_get_dmafd(cam_buf, 0);
+    vmeta->plane[0] = (void *)cam_buf->planes[0].data;
+    ts = cam_buf->timestamp;
+    TRACE(1, _b("%lu"), ts);
+
+    /* TODO multiplanar */
+
+    GST_META_FLAG_SET(vmeta, GST_META_FLAG_POOLED);
+
+    /* ...modify buffer release callback */
+    GST_MINI_OBJECT(buffer)->dispose = __output_buffer_dispose;
+
+    /* ...use "pool" pointer as a custom data */
+    buffer->pool = (void *)camera_data;
+
     /* ...set decoding/presentation timestamp (in nanoseconds) */
     GST_BUFFER_DTS(buffer) = GST_BUFFER_PTS(buffer) = ts * 1000;
 
-    TRACE(DEBUG, _b("dequeued buffer #<%d,%d>, ts=%llu, seq=%u, submitted=%d"), i, j, (unsigned long long)ts, seq, dev->submitted);
-
-    /* ...advance number of busy buffers */
-    dev->busy++;
-
     /* ...release lock before passing buffer to the application */
-    pthread_mutex_unlock(&vin->lock);
+    pthread_mutex_unlock(&camera_data->lock);
 
     /* ...pass output buffer to application */
-    CHK_API(vin->cb->process(vin->cdata, i, buffer));
+    CHK_API(camera_data->cb->process(camera_data->cdata, camera_data->camera_id, buffer));
 
     /* ...drop the reference (buffer is now owned by application) */
     gst_buffer_unref(buffer);
 
     /* ...reacquire data access lock */
-    pthread_mutex_lock(&vin->lock);
-    
+    pthread_mutex_lock(&camera_data->lock);
+
     return 0;
 }
 
 /* ...decoding thread */
-static void * vin_thread(void *arg)
+static void * camera_thread(void *arg)
 {
-    vin_data_t         *vin = arg;
-    struct epoll_event  event[vin->num];
-    struct sched_param  param = { .sched_priority = 20 };
-    cpu_set_t           cpuset;
-
-    pthread_setname_np(pthread_self(), "vin");
-
-    /* ...set thread affinity  */
-    CPU_ZERO(&cpuset);
-    CPU_SET(0, &cpuset);
-    CHK_ERR(pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) == 0, NULL);
-    
-    /* ...set thread real-time priority */
-    CHK_ERR(pthread_setschedparam(pthread_self(), SCHED_FIFO, &param) == 0, NULL);
+    camera_data_t         *camera_data = arg;
 
     /* ...lock internal data access */
     pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
-    pthread_mutex_lock(&vin->lock);
+    pthread_mutex_lock(&camera_data->lock);
 
     /* ...start processing loop */
     while (1)
     {
         int     r, k;
-        
+        camera_buf_t *buffer = NULL;
         /* ...release the lock before going to waiting state */
-        pthread_mutex_unlock(&vin->lock);
+        pthread_mutex_unlock(&camera_data->lock);
         pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
 
         TRACE(DEBUG, _b("start waiting..."));
-        
-        /* ...wait for event (infinite timeout) */
-        r = epoll_wait(vin->efd, event, vin->num, -1);
 
-        TRACE(DEBUG, _b("done waiting: %d"), r);
+        /* ...wait for event (infinite timeout) */
+        buffer = camera_get_buffer(camera_data->camera_fd, 0);
+
+        TRACE(DEBUG, _b("done waiting: %p"), buffer);
 
         /* ...reacquire the lock */
         pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
-        pthread_mutex_lock(&vin->lock);
+        pthread_mutex_lock(&camera_data->lock);
 
-        /* ...check operation result */
-        if (r < 0)
+        if (!buffer)
         {
-            /* ...ignore soft interruptions (e.g. from debugger) */
-            if (errno == EINTR)     continue;
-            TRACE(ERROR, _x("poll failed: %m"));
-            goto out;
+            TRACE(1, _b("No buffer received, continue..."));
+            continue;
         }
 
-        /* ...process all signalled descriptors */
-        for (k = 0; k < r; k++)
+        if (__process_buffer(camera_data, buffer) < 0)
         {
-            int     i = (int)event[k].data.u32;
-
-            /* ...process output buffers */
-            if (event[k].events & EPOLLIN)
-            {
-                if (__process_buffer(vin, i) < 0)
-                {
-                    TRACE(ERROR, _x("processing failed: %m"));
-                    goto out;
-                }
-            }
-            else
-            {
-                BUG(1, _x("invalid poll events: i=%d, event=%X"), i, event[k].events);
-            }
+            TRACE(ERROR, _x("processing failed: %m"));
+            goto out;
         }
     }
 
 out:
     /* ...release access lock */
-    pthread_mutex_unlock(&vin->lock);
+    pthread_mutex_unlock(&camera_data->lock);
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
 
     TRACE(INIT, _b("thread exits: %m"));
@@ -611,376 +319,78 @@ out:
 
 
 /* ...start module operation */
-int vin_start(vin_data_t *vin)
+int camera_start(camera_data_t *camera_data)
 {
     pthread_attr_t  attr;
     int             r;
-    
-    /* ...mark module is active */
-    vin->active = 1;
 
     /* ...initialize thread attributes (joinable, 128KB stack) */
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
     pthread_attr_setstacksize(&attr, 128 << 10);
 
+    /* ...mark module is active */
+    camera_data->active = 1;
+
     /* ...create V4L2 thread to asynchronously process input buffers */
-    r = pthread_create(&vin->thread, &attr, vin_thread, vin);
+    r = pthread_create(&camera_data->thread, &attr, camera_thread, camera_data);
     pthread_attr_destroy(&attr);
 
     return CHK_API(r);
 }
 
-int vin_device_snapshot(vin_data_t *vin, int i, void *data)
-{
-    vsink_meta_t     *meta = gst_buffer_get_vsink_meta(data);
-    vin_device_t   *dev = &vin->dev[i];
-
-    return store_png(dev->otpid, dev->snapshot_index++,  meta->width, meta->height, meta->s, meta->format, meta->plane[0]);
-}
 /*******************************************************************************
  * Buffer pool handling
  ******************************************************************************/
 
-/* ...output buffer dispose function (called in response to "gst_buffer_unref") */
-static gboolean __output_buffer_dispose(GstMiniObject *obj)
-{
-    GstBuffer      *buffer = GST_BUFFER(obj);
-    vin_data_t     *vin = (vin_data_t *)buffer->pool;
-    vin_meta_t     *meta = gst_buffer_get_vin_meta(buffer);
-    int             i = meta->camera_id, j = meta->index;
-    vin_device_t   *dev = &vin->dev[i];
-    gboolean        destroy;
-
-    /* ...verify buffer validity */
-    BUG((u32)i >= (u32)vin->num || (u32)j >= (u32)dev->size, _x("invalid buffer: <%d,%d>"), i, j);
-
-    /* ...lock internal data access */
-    pthread_mutex_lock(&vin->lock);
-
-    /* ...decrement amount of outstanding buffers */
-    dev->busy--;
-
-    TRACE(DEBUG, _b("output buffer #<%d:%d> (%p) returned to pool (busy: %d)"), i, j, buffer, dev->busy);
-
-    /* ...check if buffer needs to be requeued into the pool */
-    if (vin->active)
-    {
-        /* ...increment buffer reference */
-        gst_buffer_ref(buffer);
-
-        /* ...if streaming is enabled, submit buffer */
-        (dev->active ? __submit_buffer(vin, i, j) : 0);
-        
-        /* ...indicate the miniobject should not be freed */
-        destroy = FALSE;
-    }
-    else
-    {
-        TRACE(DEBUG, _b("buffer %p is freed"), buffer);
- 
-        /* ...signal flushing completion operation */
-        (dev->busy == 0 ? pthread_cond_signal(&vin->wait) : 0);
-
-        /* ...reset buffer pointer to indicate it's destroyed */
-        dev->pool[j].buffer = NULL;
-
-        /* ...force destruction of the buffer miniobject */
-        destroy = TRUE;
-    }
-
-    /* ...release data access lock */
-    pthread_mutex_unlock(&vin->lock);
-    
-    return destroy;
-}
-
-static inline int __v4l2_pixfmt_planes(int w, int h, u32 fmt, u32 *size, u32 *stride)
-{
-    int     N = w * h;
-
-    switch(fmt)
-    {
-    case V4L2_PIX_FMT_GREY:
-        return size[0] = N, stride[0] = w, 1;
-    case V4L2_PIX_FMT_UYVY:
-    case V4L2_PIX_FMT_YUYV:
-        return size[0] = N * 2, stride[0] = w * 2, 1;
-    case V4L2_PIX_FMT_NV12:
-    case V4L2_PIX_FMT_NV21:
-        return size[0] = N, size[1] = N >> 1, stride[0] = stride[1] = w, 2;
-    case V4L2_PIX_FMT_NV16:
-    case V4L2_PIX_FMT_NV61:
-        return size[0] = size[1] = N, stride[0] = stride[1] = w, 2;
-    case V4L2_PIX_FMT_ARGB32:
-    case V4L2_PIX_FMT_XRGB32:
-        return size[0] = N * 4, stride[0] = w * 4, 1;
-    case V4L2_PIX_FMT_YUV420:
-        return size[0] = N, size[1] = size[2] = N >> 2, stride[0] = w, stride[1] = stride[2] = w >> 1, 3;
-    default:        
-        return TRACE(ERROR, _b("unrecognized format: %X: %c%c%c%c"), fmt, __v4l2_fmt(fmt)), 0;
-    }
-}
-
-/* ...runtime configure */
-int vin_device_configure(vin_data_t *vin, int i, int w, int h, int s, u32 fmt, int size)
-{
-    vin_device_t   *dev = &vin->dev[i];
-
-    /* ...make sure we have proper index */
-    CHK_ERR((u32)i < (u32)vin->num, -(errno = EINVAL));
-
-    /* ...set VIN format */
-    CHK_API(vin_set_formats(dev->vfd, w, h, s, fmt));
-
-    return 0;
-}
-
-/* ...runtime initialization */
-int vin_device_init(vin_data_t *vin, int i, int w, int h, int s, u32 fmt, int size)
-{
-    vin_device_t   *dev = &vin->dev[i];
-    int         j;
-
-    /* ...make sure we have proper index */
-    CHK_ERR((u32)i < (u32)vin->num, -(errno = EINVAL));
-
-    /* ...create buffer pool */
-    CHK_ERR(dev->pool = calloc(dev->size = size, sizeof(*dev->pool)), -(errno = ENOMEM));
-
-    /* ...set VIN format */
-//    CHK_API(vin_set_formats(dev->vfd, w, h, fmt));
-
-    /* ...allocate output buffers */
-    CHK_API(vin_allocate_buffers(dev->vfd, dev->pool, size));
-
-    /* ...mark device is active */
-    dev->active = 1;
-
-    /* ...create gstreamer buffers */
-    for (j = 0; j < size; j++)
-    {
-        vin_buffer_t   *buf = &dev->pool[j];
-        GstBuffer      *buffer;
-        vin_meta_t     *meta;
-        vsink_meta_t   *vmeta;
-        u32             size[GST_VIDEO_MAX_PLANES];
-        int             n, k;
-
-        /* ...allocate empty GStreamer buffer */
-        CHK_ERR(buf->buffer = buffer = gst_buffer_new(), -ENOMEM);
-
-        /* ...add VIN metadata for decoding purposes */
-        CHK_ERR(meta = gst_buffer_add_vin_meta(buffer), -ENOMEM);
-        meta->camera_id = i;
-        meta->index = j;
-        GST_META_FLAG_SET(meta, GST_META_FLAG_POOLED);
-
-        /* ...add vsink metadata */
-        CHK_ERR(vmeta = gst_buffer_add_vsink_meta(buffer), -ENOMEM);
-        vmeta->width = w;
-        vmeta->height = h;
-        vmeta->s = s;
-        vmeta->format = __pixfmt_v4l2_to_gst(fmt);
-        CHK_ERR((n = __v4l2_pixfmt_planes(w, h, fmt, size, vmeta->stride)) > 0, -(errno = EINVAL));
-        CHK_API(vin_export_buffers(dev->vfd, j, vmeta->dmafd));
-        vmeta->plane[0] = buf->data;
-
-        TRACE(1, _b("plane #%d: fd=%d, offset=%u, size=%u"), 0, vmeta->dmafd[0], 0, size[0]);
-
-        /* ...if we have multi-planar format, multiply dma-fd / offsets */
-        for (k = 1, vmeta->offset[0] = 0; k < n; k++)
-        {
-            vmeta->dmafd[k] = vmeta->dmafd[0];
-            vmeta->offset[k] = vmeta->offset[k - 1] + size[k - 1];
-            TRACE(DEBUG, _b("plane #%d: fd=%d, offset=%u, size=%u"), k, vmeta->dmafd[k], vmeta->offset[k], size[k]);
-        }
-
-        GST_META_FLAG_SET(vmeta, GST_META_FLAG_POOLED);
-
-        /* ...modify buffer release callback */
-        GST_MINI_OBJECT(buffer)->dispose = __output_buffer_dispose;
-
-        /* ...use "pool" pointer as a custom data */
-        buffer->pool = (void *)vin;
-
-        /* ...notify application on output buffer allocation */
-        CHK_API(vin->cb->allocate(vin->cdata, i, buffer));
-
-        /* ...submit a buffer into device? - streaming is OFF yet? */
-        __submit_buffer(vin, i, j);
-    }
-
-    TRACE(INIT, _b("vin-%d runtime initialized: %d*%d %c%c%c%c (%d)"), i, w, h, __v4l2_fmt(fmt), size);
-
-    return 0;
-}
-
-int get_otp_id(int vfd, char* id)
-{
-    int ret = -1;
-    static struct v4l2_edid gedid;
-    unsigned char buffer[128] = { 0 };
-    memset(&gedid, 0, sizeof(gedid));
-    gedid.blocks = 1;
-    gedid.edid = buffer;
-
-    ret = ioctl(vfd, VIDIOC_G_EDID, &gedid);
-
-    sprintf(id, "%02x-%02x-%02x-%02x-%02x-%02x",
-            gedid.edid[0], gedid.edid[1], gedid.edid[2],
-            gedid.edid[3], gedid.edid[4], gedid.edid[5]);
-
-    TRACE(1, _b("OTP ID: %s"),id);
-
-    return ret;
-}
-
-/* ...close VIN device (called with lock held) */
-static void __vin_device_close(vin_data_t *vin, int i)
-{
-    vin_device_t   *dev = &vin->dev[i];
-    int             j;
-
-    /* ...if anything has been submitted, cancel it */
-    dev->active = 0;
-
-    /* ...wait until all buffers are collected */
-    while (dev->busy)
-    {
-        pthread_cond_wait(&dev->wait, &vin->lock);
-    }
-
-    /* ...destroy the buffers that haven't been freed yet */
-    for (j = 0; j < dev->size; j++)
-    {
-        GstBuffer  *buffer;
-
-        /* ...unref buffer if it hasn't yet been freed */
-        ((buffer = dev->pool[j].buffer) ? gst_buffer_unref(buffer) : 0);
-    }
-
-    /* ...deallocate buffers */
-    vin_destroy_buffers(dev->vfd, dev->pool, dev->size);
-
-    /* ...close V4L2 device */
-    close(dev->vfd);
-
-    TRACE(INIT, _b("vin-%d destroyed"), i);
-}
-
-/*******************************************************************************
- * Component destructor
- ******************************************************************************/
-
-/* ...destructor function */
-void vin_destroy(gpointer data, GObject *obj)
-{
-    vin_data_t     *vin = data;
-    int             i;
-
-    /* ...acquire lock */
-    pthread_mutex_lock(&vin->lock);
-    
-    /* ...clear activity flag */
-    vin->active = 0;
-
-    /* ...cancel processing thread */
-    pthread_cancel(vin->thread);
-
-    /* ...wait for all devices flushing */
-    for (i = 0; i < vin->num; i++)
-    {
-        __vin_device_close(vin, i);
-    }    
-
-    /* ...destroy mutex */
-    pthread_mutex_destroy(&vin->lock);
-    
-    /* ...destroy decoder structure */
-    free(vin);
-
-    TRACE(INIT, _b("vin-camera-bin destroyed"));
-}
-
 /* ...module initialization function */
-vin_data_t * vin_init(char **devname, int num, camera_callback_t *cb, void *cdata)
+camera_data_t **camera_init(char **devname, int num, int w, int h, u32 fmt, camera_callback_t *cb, void *cdata)
 {
-    vin_data_t             *vin;
+    camera_data_t             *camera_data;
+    camera_data_t             **retval;
     pthread_mutexattr_t     attr;
     int                     i;
 
-    /* ...create decoder structure */
-    CHK_ERR(vin = malloc(sizeof(*vin)), (errno = ENOMEM, NULL));
 
-    /* ...save application provided callback */
-    vin->cb = cb, vin->cdata = cdata;
+    retval = calloc(num, sizeof(camera_data_t *));
 
     /* ...allocate engine-specific data */
-    if ((vin->dev = calloc(vin->num = num, sizeof(vin_device_t))) == NULL)
+    if ((camera_data = calloc(num, sizeof(camera_data_t))) == NULL)
     {
-        TRACE(ERROR, _x("failed to allocate %zu bytes"), num * sizeof(vin_device_t));
+        TRACE(ERROR, _x("failed to allocate %zu bytes"), num * sizeof(camera_data_t));
         goto error;
     }
 
-    /* ...create epoll descriptor */
-    if ((vin->efd = epoll_create(num)) < 0)
-    {
-        TRACE(ERROR, _x("failed to create epoll: %m"));
-        goto error;
-    }    
+    CHK_ERR(camera_data = calloc(num, sizeof(*camera_data)), (errno = ENOMEM, NULL));
 
-    /* ...open V4L2 devices */
     for (i = 0; i < num; i++)
     {
-        vin_device_t   *dev = &vin->dev[i];
+        retval[i] = &camera_data[i];
 
-        /* ...open VIN device */
-        if ((dev->vfd = open(devname[i], O_RDWR | O_NONBLOCK)) < 0)
-        {
-            TRACE(ERROR, _x("failed to open device '%s'"), devname[i]);
-            goto error_dev;
-        }
-        if ( get_otp_id(dev->vfd, dev->otpid) != 0 )
-        {
-            TRACE(WARNING, _b("OTP ID is unavailable"));
-        }
-        /* ...check capabilities */
-        if (__vin_check_caps(dev->vfd) != 0)
-        {
-            TRACE(ERROR, _x("invalid video device '%s'"), devname[i]);
-            errno = EBADFD;
-            goto error_dev;
-        }
+        camera_data[i].cb = cb, camera_data[i].cdata = cdata;
+        camera_data[i].name = devname[i];
+        camera_data[i].camera_id = i;
+        camera_data[i].camera_fd = camera_open_with_args(camera_data[i].name,
+                                                         "memory=dma",
+                                                         0,
+                                                         "UYVY", /* TODO */
+                                                         w,
+                                                         h,
+                                                         30);
+
+        /* ...initialize internal queue access lock */
+        pthread_mutexattr_init(&attr);
+        pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+        pthread_mutex_init(&camera_data->lock, &attr);
+        pthread_mutexattr_destroy(&attr);
     }
 
-    /* ...initialize internal queue access lock */
-    pthread_mutexattr_init(&attr);
-    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
-    pthread_mutex_init(&vin->lock, &attr);
-    pthread_mutexattr_destroy(&attr);
 
-    TRACE(INIT, _b("VIN module initialized"));
+    TRACE(INIT, _b("CAMERA module initialized"));
 
-    return vin;
-
-error_dev:
-    /* ...close all devices */
-    do
-    {
-        (vin->dev[i].vfd >= 0 ? close(vin->dev[i].vfd) : 0);
-    }
-    while (i--);
-
-    /* ...destroy devices memory */
-    free(vin->dev);
+    return retval;
 
 error:
-    /* ...close epoll file descriptor */
-    close(vin->efd);
-
-    /* ...release module memory */
-    free(vin);
 
     return NULL;
 }
