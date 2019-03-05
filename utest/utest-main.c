@@ -222,7 +222,7 @@ static int parse_cmdline(int argc, char **argv)
             TRACE(INIT, _b("Number of cameras: '%s'"), optarg);
             CHK_ERR((u32)(cameras_number = atoi(optarg)) < 5, -(errno = EINVAL));
             break;
-        case 'i':
+	case 'i':
             TRACE(INIT, _b("Use stdin to capture camera images"));
             support_stdin = 1;
             break;
