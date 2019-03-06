@@ -101,7 +101,7 @@ void uyvy_to_rgb(uint8_t* yuv_data, uint8_t* rgb_data, ssize_t width, ssize_t he
         yuv_pixel++;
 
         if ((i + 1) % (width/4) == 0)
-            yuv_pixel += (stride-width)/4;
+            yuv_pixel += (stride / 2 - width) / 4;
     }
 }
 void yuyv_to_rgb(guint8* yuv_data, guint8* rgb_data, ssize_t width, ssize_t height, ssize_t stride)
