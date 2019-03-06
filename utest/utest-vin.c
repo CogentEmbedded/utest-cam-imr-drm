@@ -941,10 +941,18 @@ vin_data_t * vin_init(char **devname, int num, camera_callback_t *cb, void *cdat
             TRACE(ERROR, _x("failed to open device '%s'"), devname[i]);
             goto error_dev;
         }
+
+        /* Set default OTP_ID */
         if ( get_otp_id(dev->vfd, dev->otpid) != 0 )
         {
             TRACE(WARNING, _b("OTP ID is unavailable"));
         }
+        else
+        {
+            /* Set default OTP_ID */
+            snprintf(dev->otpid, OTP_ID_NAME_SIZE, "00-00-00-00-00-%02d", i);
+        }
+
         /* ...check capabilities */
         if (__vin_check_caps(dev->vfd) != 0)
         {
