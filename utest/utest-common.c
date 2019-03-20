@@ -88,7 +88,7 @@ int intern_trace(const char *format, ...)
     /* ...output string terminator */
     (n > 0 ? *p++ = '\n' : 0);
 
-    write(intern_trace_fd, buffer, p - buffer);
+    k = write(intern_trace_fd, buffer, p - buffer);
     
     /* ...release tracing lock */
     pthread_mutex_unlock(&intern_trace_mutex);
