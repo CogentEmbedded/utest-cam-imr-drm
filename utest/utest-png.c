@@ -210,7 +210,11 @@ int store_png(const char *otp_id, int index ,int width, int height, int s, int f
         return -EINVAL;
     }
 
-    asprintf(&filename, "frame-%s-%03d.png", otp_id, index);
+    retval = asprintf(&filename, "frame-%s-%03d.png", otp_id, index);
+    if (retval < 0) {
+        TRACE(ERROR, _x("asprintf failed"));
+        return -ENOMEM;
+    }
 
     /* ...sanity check - data buffer pointer must be provided */
     CHK_ERR(width > 0 && height >= 0 && format > 0 && data, -EINVAL);
