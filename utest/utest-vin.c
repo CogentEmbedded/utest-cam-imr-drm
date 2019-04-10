@@ -946,9 +946,6 @@ vin_data_t * vin_init(char **devname, int num, camera_callback_t *cb, void *cdat
         if ( get_otp_id(dev->vfd, dev->otpid) != 0 )
         {
             TRACE(WARNING, _b("OTP ID is unavailable"));
-        }
-        else
-        {
             /* Set default OTP_ID */
             snprintf(dev->otpid, OTP_ID_NAME_SIZE, "00-00-00-00-00-%02d", i);
         }
