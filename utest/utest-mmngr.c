@@ -218,7 +218,7 @@ static inline u32 __vsp_pixfmt_size(int w, int h, int s, u32 fmt)
 {
     switch(fmt)
     {
-    case V4L2_PIX_FMT_GREY:     return (s ? : w) * h;
+    case V4L2_PIX_FMT_GREY:     return (s ? : w) * h * 2; /* output as NV16 with UV fixed to 0x80 (blank) */
     case V4L2_PIX_FMT_UYVY:     return (s ? : 2 * w) * h;
     case V4L2_PIX_FMT_YUYV:     return (s ? : 2 * w) * h;
     case V4L2_PIX_FMT_NV16:     return (s ? : w) * h * 2;
@@ -234,7 +234,7 @@ static inline int __vsp_pixfmt_planes(int w, int h, int s, u32 fmt, u32 *size, u
     switch(fmt)
     {
     case V4L2_PIX_FMT_GREY:
-        return size[0] = (stride[0] = (s ? : w)) * h, 1;
+        return size[0] = (stride[0] = (s ? : w)) * h * 2, 1;  /* output as NV16 with UV fixed to 0x80 (blank) */
     case V4L2_PIX_FMT_UYVY:
     case V4L2_PIX_FMT_YUYV:
         return size[0] = (stride[0] = (s ? : 2 * w)) * h, 1;

@@ -1945,7 +1945,7 @@ static inline uint32_t __pixfmt_gst_to_drm(int format, int *n)
     case GST_VIDEO_FORMAT_UYVY:     return *n = 1, DRM_FORMAT_UYVY;
     case GST_VIDEO_FORMAT_YUY2:     return *n = 1, DRM_FORMAT_YUYV;
     case GST_VIDEO_FORMAT_YVYU:     return *n = 1, DRM_FORMAT_YVYU;
-    case GST_VIDEO_FORMAT_GRAY8:    return *n = 1, DRM_FORMAT_R8;
+    case GST_VIDEO_FORMAT_GRAY8:    return *n = 1, DRM_FORMAT_NV16; /* output as NV16 with UV fixed to 0x80 (blank) */
     default:                        return TRACE(ERROR, _x("unsupported format: %d"), format), 0;
     }
 }

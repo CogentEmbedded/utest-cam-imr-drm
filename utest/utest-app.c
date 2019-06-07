@@ -294,6 +294,12 @@ static int imr_buffer_allocate(void *cdata, int i, GstBuffer *buffer)
 
     /* ...save pointer to the memory buffer */
     meta->priv = app->camera_plane[i][j];
+
+    if (format == GST_VIDEO_FORMAT_GRAY8)
+    {
+        /* output as NV16 with UV fixed to 0x80 (blank) */
+        memset(vsp_mem_ptr(meta->priv), 0x80, vsp_mem_size(meta->priv));
+    }
     
     /* ...create DMA buffers for a memory chunk */
     CHK_API(vsp_buffer_export(meta->priv, w, h, s, __pixfmt_gst_to_v4l2(format), dmafd, offset, stride));

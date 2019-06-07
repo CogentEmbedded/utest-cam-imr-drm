@@ -129,6 +129,10 @@ static inline u32 parse_format(char *str)
     {
         return V4L2_PIX_FMT_YUV420;
     }
+    else if (strcasecmp(str, "gray8") == 0)
+    {
+        return V4L2_PIX_FMT_GREY;
+    }
     else
     {
         return 0;
