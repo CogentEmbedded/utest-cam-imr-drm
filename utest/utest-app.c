@@ -51,7 +51,7 @@ TRACE_TAG(DEBUG, 0);
  ******************************************************************************/
 
 /* ...number of cameras */
-#define CAMERAS_NUMBER                  4
+#define CAMERAS_NUMBER                  5
 int cameras_number = CAMERAS_NUMBER;
 
 /* ...maximal number of triangles to have for a single camera */
@@ -424,6 +424,8 @@ static void app_redraw(display_data_t *display, void *data)
             (cameras_number == 1 ?
                         texture_set_view(&v, 0 ,0, W, H) :
                         texture_set_view(&v, (i & 1 ? W / 2 : 0), (i & 2 ? H / 2 : 0), (i & 1 ? W : W / 2), (i & 2 ? H : H / 2)));
+
+            (cameras_number == 5 && i == 4 ? texture_set_view(&v, W / 4, H / 4, W * 3 / 4, H * 3 / 4) : 0);
 
             /* ...set cropping parameters */
             (cameras_number == 1 ?

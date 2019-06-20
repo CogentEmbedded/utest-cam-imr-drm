@@ -59,7 +59,7 @@ char   *imr_dev_name[] = {
     "/dev/video5",
     "/dev/video6",
     "/dev/video7",
-
+    "/dev/video8",
 };
 
 /* ...default joystick device name  */
@@ -79,11 +79,12 @@ int     __vsp_width = 1280, __vsp_height = 720;
  ******************************************************************************/
 
 /* ...default V4L2 device names */
-char * vin_dev_name[4] = {
+char * vin_dev_name[5] = {
     "/dev/video0",
     "/dev/video1",
     "/dev/video2",
     "/dev/video3",
+    "/dev/video4",
 };
 
 /*******************************************************************************
@@ -223,7 +224,7 @@ static int parse_cmdline(int argc, char **argv)
         case 'N':
             /* ...parse number of camera */
             TRACE(INIT, _b("Number of cameras: '%s'"), optarg);
-            CHK_ERR((u32)(cameras_number = atoi(optarg)) < 5, -(errno = EINVAL));
+            CHK_ERR((u32)(cameras_number = atoi(optarg)) < 6, -(errno = EINVAL));
             break;
 
         case 'i':
