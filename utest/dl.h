@@ -217,4 +217,7 @@ extern int dl_autocg_set_xy(display_list_t *dl, int x0, int y0);
 
 extern dl_strip_abs_t * dl_abs_strip_create(display_list_t *dl, int n);
 
+/* ...specify crop-region */
+extern int dl_set_crop(display_list_t *dl, int x0, int y0, int x1, int y1);
+
 #endif  /* __DL_H */

@@ -2119,7 +2119,6 @@ int plane_setup(window_data_t *window, int i, texture_data_t *texture, texture_d
         CHK_API(drmModeAtomicAddProperty(req, plane_id, display->prop[PROP_FB_ID], 0));
     }
 
-#if 0
     /* ...set apha-plane property */
     CHK_API(drmModeAtomicAddProperty(req, plane_id, display->prop[PROP_ALPHAPLANE], (alpha ? alpha->fb_id : 0)));
     
@@ -2140,7 +2139,6 @@ int plane_setup(window_data_t *window, int i, texture_data_t *texture, texture_d
     {
         CHK_API(drmModeAtomicAddProperty(req, plane_id, display->prop[PROP_CKEY], 0));
     }
-#endif
 
     t3 = __get_time_usec();
 

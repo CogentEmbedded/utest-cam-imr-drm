@@ -54,12 +54,16 @@ int     __output_main = 1;
 int     LOG_LEVEL = 1;
 
 /* ...V4L2 device name */
-char   *imr_dev_name[] = {
-    "/dev/video4",
-    "/dev/video5",
-    "/dev/video6",
-    "/dev/video7",
-    "/dev/video8",
+char   *imr_dev_name[CAMERAS_NUMBER] = {
+    "/dev/video9",
+    "/dev/video10",
+    "/dev/video11",
+    "/dev/video12",
+    "/dev/video13",
+    "/dev/video14",
+    "/dev/video15",
+    "/dev/video16",
+    "/dev/video17",    
 };
 
 /* ...default joystick device name  */
@@ -79,12 +83,16 @@ int     __vsp_width = 1280, __vsp_height = 720;
  ******************************************************************************/
 
 /* ...default V4L2 device names */
-char * vin_dev_name[5] = {
+char * vin_dev_name[CAMERAS_NUMBER] = {
     "/dev/video0",
     "/dev/video1",
     "/dev/video2",
     "/dev/video3",
     "/dev/video4",
+    "/dev/video5",
+    "/dev/video6",
+    "/dev/video7",
+    "/dev/video8",    
 };
 
 /*******************************************************************************
@@ -102,7 +110,7 @@ static inline int parse_vin_devices(char *str, char **name, int n)
     }
 
     /* ...make sure we have parsed all addresses */
-    CHK_ERR(n == 0, -EINVAL);
+    //CHK_ERR(n == 0, -EINVAL);
 
     return 0;
 }
@@ -176,13 +184,13 @@ static int parse_cmdline(int argc, char **argv)
         case 'v':
             /* ...VIN device names */
             TRACE(INIT, _b("VIN devices: '%s'"), optarg);
-            CHK_API(parse_vin_devices(optarg, vin_dev_name, 4));
+            CHK_API(parse_vin_devices(optarg, vin_dev_name, CAMERAS_NUMBER));
             break;
 
         case 'r':
             /* ...set default IMR device name */
             TRACE(INIT, _b("IMR device: '%s'"), optarg);
-            CHK_API(parse_vin_devices(optarg, imr_dev_name, 4));
+            CHK_API(parse_vin_devices(optarg, imr_dev_name, CAMERAS_NUMBER));
             break;
 
         case 'f':
@@ -224,7 +232,7 @@ static int parse_cmdline(int argc, char **argv)
         case 'N':
             /* ...parse number of camera */
             TRACE(INIT, _b("Number of cameras: '%s'"), optarg);
-            CHK_ERR((u32)(cameras_number = atoi(optarg)) < 6, -(errno = EINVAL));
+            CHK_ERR((u32)(cameras_number = atoi(optarg)) <= CAMERAS_NUMBER, -(errno = EINVAL));
             break;
 
         case 'i':

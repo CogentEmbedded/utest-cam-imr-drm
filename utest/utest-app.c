@@ -50,8 +50,6 @@ TRACE_TAG(DEBUG, 0);
  * Local constants definitions
  ******************************************************************************/
 
-/* ...number of cameras */
-#define CAMERAS_NUMBER                  5
 int cameras_number = CAMERAS_NUMBER;
 
 /* ...maximal number of triangles to have for a single camera */
@@ -97,7 +95,7 @@ struct app_data
     imr_data_t         *imr;
 
     /* ...buffers memory */
-    vsp_mem_t          *camera_plane[CAMERAS_NUMBER][VSP_POOL_SIZE];
+    vsp_mem_t          *camera_plane[PLANES_NUMBER][VSP_POOL_SIZE];
     
     /* ...IMR configuration */
     imr_cfg_t          *cfg[CAMERAS_NUMBER];
@@ -293,12 +291,25 @@ static int imr_buffer_allocate(void *cdata, int i, GstBuffer *buffer)
     CHK_ERR((u32)j < (u32)VSP_POOL_SIZE, -(errno = EBADFD));
 
     /* ...save pointer to the memory buffer */
-    meta->priv = app->camera_plane[i][j];
+    meta->priv = app->camera_plane[i % PLANES_NUMBER][j];
 
-    if (format == GST_VIDEO_FORMAT_GRAY8)
+    /* ...clear buffer if it's not a duplicate */
+    if (i < PLANES_NUMBER)
     {
-        /* output as NV16 with UV fixed to 0x80 (blank) */
-        memset(vsp_mem_ptr(meta->priv), 0x80, vsp_mem_size(meta->priv));
+        /* ...move somehere else */
+        if (format == GST_VIDEO_FORMAT_GRAY8)
+        {
+            /* ...clear luminance data */
+            memset(vsp_mem_ptr(meta->priv), 0x00, s * h);
+        
+            /* output as NV16 with UV fixed to 0x80 (blank) */
+            memset(vsp_mem_ptr(meta->priv) + s * h, 0x80, s * h);
+        }
+        else
+        {
+            /* ...clear complete buffer */
+            memset(vsp_mem_ptr(meta->priv), 0x00, vsp_mem_size(meta->priv));
+        }
     }
     
     /* ...create DMA buffers for a memory chunk */
@@ -391,6 +402,7 @@ static void app_redraw(display_data_t *display, void *data)
         int             i;
         static char     fname[256];
         imr_meta_t     *meta;
+        u32             ckey[3] = { 0x100, 0x00000F00, 0x00000000 };
         
         /* ...get buffers from output queue */
         for (i = 0; i < cameras_number; i++)
@@ -407,7 +419,7 @@ static void app_redraw(display_data_t *display, void *data)
         TRACE(INFO, _b("redraw frame: %u (fps: %.2f)"), app->frame_num++, fps);
 
         /* ...set up the planes */
-        for (i = 0; i < cameras_number; i++)
+        for (i = 0; i < cameras_number && i < PLANES_NUMBER; i++)
         {
             texture_data_t     *t = gst_buffer_get_imr_meta(buf[i])->priv2;
             texture_view_t      v;
@@ -420,6 +432,40 @@ static void app_redraw(display_data_t *display, void *data)
             TRACE(INFO, _b("dump %dx%d"), meta->width, meta->height);
 #endif
 
+#if 0
+            /* ...set view-port / cropping parameters for a buffer */
+            switch (cameras_number)
+            {
+            case 1:
+                texture_set_view(&v, 0, 0, W, H);
+                texture_set_crop(&c, 0, 0, W, H);
+                break;
+
+            case 2 ... 4:
+                texture_set_view(&v, (i & 1 ? W / 2 : 0), (i & 2 ? H / 2 : 0), (i & 1 ? W : W / 2), (i & 2 ? H : H / 2));
+                texture_set_crop(&c, (i & 1 ? W / 2 : 0), (i & 2 ? H / 2 : 0), (i & 1 ? W : W / 2), (i & 2 ? H : H / 2));
+                //texture_set_crop(&c, 0, 0, W / 2, H / 2);
+                break;
+
+            case 5 ... 6:
+                texture_set_view(&v, (i % 3) * (W / 3), (i < 3 ? 0 : (H / 2)), (i % 3 + 1) * (W / 3), (i < 3 ? (H / 2) : H));
+                texture_set_crop(&v, (i % 3) * (W / 3), (i < 3 ? 0 : (H / 2)), (i % 3 + 1) * (W / 3), (i < 3 ? (H / 2) : H));
+                //texture_set_crop(&c, 0, 0, W / 3, H / 2);
+                break;
+
+            case 7 ... 9:
+                texture_set_view(&v, (i % 3) * (W / 3), (i / 3) * (H / 3), (i % 3 + 1) * (W / 3), (i / 3 + 1) * (H / 3));
+                texture_set_crop(&c, (i % 3) * (W / 3), (i / 3) * (H / 3), (i % 3 + 1) * (W / 3), (i / 3 + 1) * (H / 3));
+                //texture_set_crop(&c, 0, 0, W / 3, H / 3);
+                break;
+
+            default:
+                texture_set_view(&v, 0, 0, 0, 0);
+                texture_set_crop(&c, 0, 0, 0, 0);
+            }
+#endif
+            
+#if 0
             /* ...set view-port for a buffer */
             (cameras_number == 1 ?
                         texture_set_view(&v, 0 ,0, W, H) :
@@ -431,9 +477,9 @@ static void app_redraw(display_data_t *display, void *data)
             (cameras_number == 1 ?
                         texture_set_crop(&c, 0, 0, W / 1, H / 1) :
                         texture_set_crop(&c, 0, 0, W / 2, H / 2));
-
-            /* ...setup rendering plane */
-            plane_setup(window, i, t, NULL, 0xFF, &v, &c, NULL, 0);
+#endif
+            /* ...setup rendering plane - use color-keying for making unset (Y=0) areas of buffer fully transparent */
+            plane_setup(window, i, t, NULL, 0xFF, NULL, NULL, ckey, 0);
         }
         
         /* ...submit data to renderer */
@@ -465,34 +511,42 @@ static void app_redraw(display_data_t *display, void *data)
 }
 
 /* ...setup IMR configuration for a particular camera */
-static int __camera_cfg_setup(app_data_t *app, int id, int w, int h, int W, int H, imr_cfg_t *cfg)
+static int __camera_cfg_setup(app_data_t *app, int id, int w, int h, int x0, int y0, int W, int H, imr_cfg_t *cfg)
 {
     display_list_t     *dl = imr_cfg_dl(cfg);
     int                 columns, rows;
     int                 x, y, dx, dy;
     int                 i, j;
 
+    x0 <<= DL_DST_SUBSAMPLE;
+    y0 <<= DL_DST_SUBSAMPLE;
+    W <<= DL_DST_SUBSAMPLE;
+    H <<= DL_DST_SUBSAMPLE;
+    w <<= DL_SRC_SUBSAMPLE;
+    h <<= DL_SRC_SUBSAMPLE;
+    
     /* ...calculate lattice size (in destination space) */
-    columns = ((W << DL_DST_SUBSAMPLE)+ DL_DST_THRESHOLD - 1) / DL_DST_THRESHOLD;
-    rows = ((H << DL_DST_SUBSAMPLE) + DL_DST_THRESHOLD - 1) / DL_DST_THRESHOLD;
+    columns = (W + DL_DST_THRESHOLD - 1) / DL_DST_THRESHOLD;
+    rows = (H + DL_DST_THRESHOLD - 1) / DL_DST_THRESHOLD;
 
     /* ...bail out if we have empty lattice */
     if (!columns || !rows)  return 0;
 
+    /* ...set cropping region */
+    dl_set_crop(dl, x0, y0, x0 + W, y0 + H);
+    
     /* ...put lattice configuration */
     dx = (W >= DL_DST_THRESHOLD ? DL_DST_THRESHOLD : W);
     dy = (H >= DL_DST_THRESHOLD ? DL_DST_THRESHOLD : H);
     CHK_API(dl_autocg_set_dxdy(dl, dx, dy));
 
-    /* ...set origin in destination space at <0,0> */
-    CHK_API(dl_autocg_set_x(dl, 0));
+    /* ...set origin in destination space at <x0,y0> */
+    CHK_API(dl_autocg_set_x(dl, x0));
 
-    float   x_ratio = (float)w / W;
-    float   y_ratio = (float)h / H;
     int     n = (columns + 1) * 2;
     
     /* ...process the strips */
-    for (i = 0, y = 0; i < rows; i++, y += DL_DST_THRESHOLD)
+    for (i = 0, y = y0; i < rows; i++, y += dy)
     {
         dl_strip_abs_t   *s;
 
@@ -503,22 +557,22 @@ static int __camera_cfg_setup(app_data_t *app, int id, int w, int h, int W, int 
         CHK_ERR(s = dl_abs_strip_create(dl, n), -1);
         
         /* ...generate strip of length 2 * columns */
-        for (j = 0, x = 0; j <= columns; j++, x += DL_DST_THRESHOLD, s += 2)
+        for (j = 0, x = x0; j <= columns; j++, x += dx, s += 2)
         {
-            float X = (float)x / (W << DL_DST_SUBSAMPLE);
-            float Y = (float)y / (H << DL_DST_SUBSAMPLE);
+            float X = (float)(x - x0) / W;
+            float Y = (float)(y - y0) / H;
             
             /* ...{x,y} is a point in destination space; get associated point in source space */
-            u16     u = (u16)(X * ((w << DL_SRC_SUBSAMPLE) - 1));
-            u16     v = (u16)(Y * (h << DL_SRC_SUBSAMPLE));
+            u16     u = (u16)(X * w);
+            u16     v = (u16)(Y * h);
 
             TRACE(0, _b("x,y=%u,%u, X,Y=%f,%f, u,v=%u,%u"), x, y, X, Y, u, v);
 
             s[0].uX = u;
             s[0].vY = v;
 
-            Y = (float)(y + DL_DST_THRESHOLD) / (H << DL_DST_SUBSAMPLE);
-            v = (u16)(Y * (h << DL_SRC_SUBSAMPLE));
+            Y = (float)(y + DL_DST_THRESHOLD - y0) / H;
+            v = (u16)(Y * h);
             s[1].uX = u;
             s[1].vY = v;
 
@@ -541,11 +595,31 @@ static int app_context_init(widget_data_t *widget, void *data)
     int             w = window_get_width(window);
     int             h = window_get_height(window);
     int             fmt = __pixfmt_v4l2_to_gst(__vin_format);
-    int             W = w / 2, H = h / 2;
+    int             W, H;
     int             i;
     u32             c_type;
 
-    (cameras_number == 1 ? (W = w / 1, H = h / 1) : 0);
+    switch (cameras_number)
+    {
+    case 1:
+        W = w, H = h;
+        break;
+
+    case 2 ... 4:
+        W = w / 2, H = h / 2;
+        break;
+
+    case 5 ... 6:
+        W = w / 3, H = h / 2;
+        break;
+
+    case 7 ... 9:
+        W = w / 3, H = h / 3;
+        break;
+
+    default:
+        W = 0, H = 0;
+    }
 
     /* ...create VIN engine */
     CHK_ERR(app->vin = vin_init(vin_dev_name, cameras_number, &camera_cb, app), -1);
@@ -554,7 +628,7 @@ static int app_context_init(widget_data_t *widget, void *data)
     CHK_ERR(app->imr = imr_init(imr_dev_name, cameras_number, &imr_cb, app), -1);
     
     /* ...allocate output buffers for IMR */
-    CHK_API(vsp_allocate_buffers(W, H, 0, __vin_format, &app->camera_plane[0][0], cameras_number * VSP_POOL_SIZE));
+    CHK_API(vsp_allocate_buffers(w, h, 0, __vin_format, &app->camera_plane[0][0], PLANES_NUMBER * VSP_POOL_SIZE));
 
     /* ...prepare IMR configuration descriptor for camera-planes */
     c_type = IMR_MAP_TME | IMR_MAP_BFE | IMR_MAP_AUTODG | 0*IMR_MAP_TCM;
@@ -574,13 +648,35 @@ static int app_context_init(widget_data_t *widget, void *data)
         CHK_API(vin_device_init(app->vin, i, __vin_width, __vin_height, __vin_stride, __vin_format, __vin_buffers_num));
 
         /* ...setup IMR engine to do a simple scaling */
-        CHK_API(imr_setup(app->imr, i, __vin_width, __vin_height, __vin_stride, W, H, 0, fmt, fmt, VSP_POOL_SIZE));
+        CHK_API(imr_setup(app->imr, i, __vin_width, __vin_height, __vin_stride, w, h, 0, fmt, fmt, VSP_POOL_SIZE));
 
         /* ...allocate engine configuration */
         CHK_ERR(app->cfg[i] = imr_cfg_create(c_type, IMR_CFG_CAMERA_SIZE * sizeof(dl_abs_t)), -1);
 
+        /* ...set output area of the buffer */
+        int     x0, y0;
+        
+        switch (cameras_number)
+        {
+        default:
+            x0 = y0 = 0;
+            break;
+
+        case 2 ... 4:
+            x0 = (i & 1 ? W : 0), y0 = (i & 2 ? H : 0);
+            break;
+
+        case 5 ... 6:
+            x0 = (i % 3) * W, y0 = (i < 3 ? 0 : H);
+            break;
+
+        case 7 ... 9:
+            x0 = (i % 3) * W, y0 = (i / 3) * H;
+            break;
+        }           
+            
         /* ...setup camera configuration */
-        CHK_API(__camera_cfg_setup(app, i, __vin_width, __vin_height, W, H, app->cfg[i]));
+        CHK_API(__camera_cfg_setup(app, i, __vin_width, __vin_height, x0, y0, W, H, app->cfg[i]));
 
         /* ...apply configuration instantly */
         CHK_API(imr_cfg_apply(app->imr, i, app->cfg[i]));

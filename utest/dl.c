@@ -150,3 +150,20 @@ dl_strip_abs_t * dl_abs_strip_create(display_list_t *dl, int n)
     /* ...return pointer to a strip data */
     return &c->v[0];
 }
+
+/* ...specify crop-region */
+int dl_set_crop(display_list_t *dl, int x0, int y0, int x1, int y1)
+{
+    u32     *c;
+
+    /* ...add DL-records */
+    CHK_ERR(__dl_add(dl, c, sizeof(*c) * 4), -1);
+
+    /* ...fill automatic coordinates generation */
+    *c++ = IMR_OP_WTS(IMR_XMINR, x0);
+    *c++ = IMR_OP_WTS(IMR_YMINR, y0);
+    *c++ = IMR_OP_WTS(IMR_XMAXR, x1);
+    *c++ = IMR_OP_WTS(IMR_YMAXR, y1);
+
+    return 0;
+}
