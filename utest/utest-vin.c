@@ -537,14 +537,6 @@ static void * vin_thread(void *arg)
 
     pthread_setname_np(pthread_self(), "vin");
 
-    /* ...set thread affinity  */
-    CPU_ZERO(&cpuset);
-    CPU_SET(0, &cpuset);
-    CHK_ERR(pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) == 0, NULL);
-    
-    /* ...set thread real-time priority */
-    CHK_ERR(pthread_setschedparam(pthread_self(), SCHED_FIFO, &param) == 0, NULL);
-
     /* ...lock internal data access */
     pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
     pthread_mutex_lock(&vin->lock);
