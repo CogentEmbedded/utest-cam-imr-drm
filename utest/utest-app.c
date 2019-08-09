@@ -563,7 +563,7 @@ static int __camera_cfg_setup(app_data_t *app, int id, int w, int h, int x0, int
             float Y = (float)(y - y0) / H;
             
             /* ...{x,y} is a point in destination space; get associated point in source space */
-            u16     u = (u16)(X * w);
+            u16     u = (u16)((X * w) >= 65536.0f ? 65535 : X * w);
             u16     v = (u16)(Y * h);
 
             TRACE(0, _b("x,y=%u,%u, X,Y=%f,%f, u,v=%u,%u"), x, y, X, Y, u, v);
