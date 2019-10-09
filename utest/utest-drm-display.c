@@ -412,7 +412,7 @@ static struct udev_device * find_drm(struct udev * udev, const char *seat_id)
         goto out;
     }
 
-    TRACE(ERROR, _b("no DRM found (seat-id = %s)"), seat_id);
+    TRACE(ERROR, _b("no DRM found (seat-id = %s)"), seat_id ? seat_id : "(null)");
 
 out:
     /* ...deallocate enumeration structure */
