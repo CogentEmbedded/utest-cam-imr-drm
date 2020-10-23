@@ -293,11 +293,23 @@ static inline int vin_set_formats(int vfd, int width, int height, int s, u32 for
         crop.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         crop.c = cropcap.bounds;
 
-        /* center window */
-        crop.c.left = (cropcap.bounds.width - width) / 2;
-        crop.c.top = (cropcap.bounds.height - height) / 2;
+        /* center window if possible */
+        crop.c.left = ((int)cropcap.bounds.width - width) / 2;
+        if (crop.c.left < cropcap.bounds.left)
+        {
+            crop.c.left = cropcap.bounds.left;
+        }
+
+        crop.c.top = ((int)cropcap.bounds.height - height) / 2;
+        if (crop.c.top < cropcap.bounds.top)
+        {
+            crop.c.top = cropcap.bounds.top;
+        }
+
+        /* Do not check bounds on width and height because some buggy drivers report 0x0 in cropcap.bounds */
         crop.c.width = width;
         crop.c.height = height;
+
         CHK_API(ioctl(vfd, VIDIOC_S_CROP, &crop));
     }
 
