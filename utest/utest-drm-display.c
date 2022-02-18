@@ -450,6 +450,7 @@ static int init_drm(struct udev_device *device)
     else if (drmSetClientCap(fd, /*DRM_CLIENT_CAP_UNIVERSAL_PLANES*/DRM_CLIENT_CAP_ATOMIC, 1) < 0)
     {
         TRACE(ERROR, _x("failed to set caps: %m"));
+        close(fd);
         return -errno;
     }
     else if ((plane_res = drmModeGetPlaneResources(fd)) == NULL)
