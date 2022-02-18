@@ -369,59 +369,6 @@ static pthread_key_t    __key_window;
  * DRM support
  ******************************************************************************/
 
-static struct udev_device * find_drm(struct udev * udev, const char *seat_id)
-{
-	struct udev_enumerate  *e;
-	struct udev_list_entry *entry;
-	struct udev_device     *drm_device = NULL;
-
-    /* ...enumerate all DRM devices */
-	CHK_ERR(e = udev_enumerate_new(udev), NULL);
-	udev_enumerate_add_match_subsystem(e, "drm");
-	udev_enumerate_add_match_sysname(e, "card[0-9]*");
-	udev_enumerate_scan_devices(e);
-
-    /* ...find device that has required SEAT id */
-	udev_list_entry_foreach(entry, udev_enumerate_get_list_entry(e))
-    {
-        const char         *path = udev_list_entry_get_name(entry);
-        struct udev_device *device;
-
-        /* ...get device handle */
-		if ((device = udev_device_new_from_syspath(udev, path)) == NULL)
-        {
-            TRACE(ERROR, _x("failed to create device: %m"));
-            goto out;
-        }
-
-        /* ...check if seat id is specified */
-        if (seat_id)
-        {
-            const char *id = udev_device_get_property_value(device, "ID_SEAT");
-
-            if (!id || strcmp(seat_id, id) != 0)
-            {
-                TRACE(INFO, _b("skip device '%s': seat-id = %s (expected %s)"), path, id, seat_id);
-                udev_device_unref(device);
-                continue;
-            }
-        }
-
-        TRACE(INFO, _b("found DRM device: '%s'"), path);
-        drm_device = device;
-        goto out;
-    }
-
-    TRACE(ERROR, _b("no DRM found (seat-id = %s)"), seat_id ? seat_id : "(null)");
-
-out:
-    /* ...deallocate enumeration structure */
-    udev_enumerate_unref(e);
-
-    /* ...return device handle */
-    return drm_device;
-}
-
 static int init_drm(struct udev_device *device)
 {
     display_data_t             *display = &__display;
@@ -601,6 +548,68 @@ static int init_drm(struct udev_device *device)
         }
     }
 
+    return fd;
+}
+
+static int find_drm(struct udev * udev, const char *seat_id)
+{
+	struct udev_enumerate  *e;
+	struct udev_list_entry *entry;
+	int fd = -1;
+
+    /* ...enumerate all DRM devices */
+	CHK_ERR(e = udev_enumerate_new(udev), fd);
+	udev_enumerate_add_match_subsystem(e, "drm");
+	udev_enumerate_add_match_sysname(e, "card[0-9]*");
+	if (udev_enumerate_scan_devices(e) < 0) {
+		TRACE(ERROR, _x("cannot find default DRM device: %m"));
+		goto out;
+	}
+
+    /* ...find device that has required SEAT id */
+	udev_list_entry_foreach(entry, udev_enumerate_get_list_entry(e))
+    {
+        const char         *path = udev_list_entry_get_name(entry);
+        struct udev_device *device;
+
+        /* ...get device handle */
+		if ((device = udev_device_new_from_syspath(udev, path)) == NULL)
+        {
+            TRACE(ERROR, _x("failed to create device: %m"));
+            goto out;
+        }
+
+        /* ...check if seat id is specified */
+        if (seat_id)
+        {
+            const char *id = udev_device_get_property_value(device, "ID_SEAT");
+
+            if (!id || strcmp(seat_id, id) != 0)
+            {
+                TRACE(INFO, _b("skip device '%s': seat-id = %s (expected %s)"), path, id, seat_id);
+                udev_device_unref(device);
+                continue;
+            }
+        }
+
+        TRACE(INFO, _b("found DRM device: '%s'"), path);
+        fd = init_drm(device);
+        if (fd < 0) {
+            TRACE(ERROR, _x("failed to initialize DRM device: '%s': %m"), path);
+            udev_device_unref(device);
+            continue;
+        }
+
+        goto out;
+    }
+
+    TRACE(ERROR, _b("no DRM found (seat-id = %s)"), seat_id ? seat_id : "(null)");
+
+out:
+    /* ...deallocate enumeration structure */
+    udev_enumerate_unref(e);
+
+    /* ...return device handle */
     return fd;
 }
 
@@ -1751,7 +1760,6 @@ display_data_t * display_create(const int support_stdin)
     display_data_t     *display = &__display;
     pthread_attr_t      attr;
     int                 r;
-    struct udev_device *drm_device;
     
     /* ...reset display data */
     memset(display, 0, sizeof(*display));
@@ -1764,13 +1772,7 @@ display_data_t * display_create(const int support_stdin)
     }
 
     /* ...basic initialization of DRM */
-    if ((drm_device = find_drm(display->udev, NULL)) == NULL)
-    {
-        TRACE(ERROR, _x("cannot found default DRM device: %m"));
-        goto error;
-    }
-
-    if ((display->fd = init_drm(drm_device)) < 0)
+    if ((display->fd = find_drm(display->udev, NULL)) < 0)
     {
         TRACE(ERROR, _x("failed to initialize DRM: %m"));
         goto error;
