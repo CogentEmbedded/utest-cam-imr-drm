@@ -131,7 +131,7 @@ typedef struct imr_data
 /* ...metadata type registration */
 GType imr_meta_api_get_type(void)
 {
-    static volatile GType type;
+    static GType type;
     static const gchar *tags[] = { GST_META_TAG_MEMORY_STR, NULL };
 
     if (g_once_init_enter(&type))
