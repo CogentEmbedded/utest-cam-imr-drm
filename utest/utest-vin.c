@@ -920,19 +920,19 @@ vin_data_t * vin_init(char **devname, int num, camera_callback_t *cb, void *cdat
     /* ...save application provided callback */
     vin->cb = cb, vin->cdata = cdata;
 
-    /* ...allocate engine-specific data */
-    if ((vin->dev = calloc(vin->num = num, sizeof(vin_device_t))) == NULL)
-    {
-        TRACE(ERROR, _x("failed to allocate %zu bytes"), num * sizeof(vin_device_t));
-        goto error;
-    }
-
     /* ...create epoll descriptor */
     if ((vin->efd = epoll_create(num)) < 0)
     {
         TRACE(ERROR, _x("failed to create epoll: %m"));
-        goto error;
-    }    
+        goto error_vin;
+    }
+
+    /* ...allocate engine-specific data */
+    if ((vin->dev = calloc(vin->num = num, sizeof(vin_device_t))) == NULL)
+    {
+        TRACE(ERROR, _x("failed to allocate %zu bytes"), num * sizeof(vin_device_t));
+        goto error_efd;
+    }
 
     /* ...open V4L2 devices */
     for (i = 0; i < num; i++)
@@ -984,10 +984,11 @@ error_dev:
     /* ...destroy devices memory */
     free(vin->dev);
 
-error:
+error_efd:
     /* ...close epoll file descriptor */
     close(vin->efd);
 
+error_vin:
     /* ...release module memory */
     free(vin);
 
