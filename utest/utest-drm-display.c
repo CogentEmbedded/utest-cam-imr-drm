@@ -1677,10 +1677,10 @@ void window_destroy(window_data_t *window)
     /* ...destroy rendering thread conditional variable */
     pthread_cond_destroy(&window->wait);
 
+    TRACE(INFO, _b("window[%p] destroyed"), window);
+
     /* ...destroy object */
     free(window);
-
-    TRACE(INFO, _b("window[%p] destroyed"), window);
 }
 
 /* ...return current window width */
