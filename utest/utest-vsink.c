@@ -462,9 +462,9 @@ static void vsink_destroy(gpointer data)
 
     TRACE(INIT, _b("video-sink[%p] deallocate"), sink);
 
-    free(sink);
-
     TRACE(INIT, _b("video-sink[%p] destroyed"), sink);
+
+    free(sink);
 }
 
 /* ...sink node callbacks */
