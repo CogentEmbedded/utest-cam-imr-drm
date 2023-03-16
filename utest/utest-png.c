@@ -205,7 +205,8 @@ int store_png(const char *otp_id, int index ,int width, int height, int s, int f
 
     if ((__vin_format != V4L2_PIX_FMT_NV16) &&
         (__vin_format != V4L2_PIX_FMT_UYVY) &&
-        (__vin_format != V4L2_PIX_FMT_YUYV)) {
+        (__vin_format != V4L2_PIX_FMT_YUYV) &&
+        (__vin_format != V4L2_PIX_FMT_GREY)) {
         TRACE(ERROR, _x("unsupported format %x: %m"), __vin_format);
         return -EINVAL;
     }
@@ -254,16 +255,25 @@ int store_png(const char *otp_id, int index ,int width, int height, int s, int f
     /* ...set compression level (zlib 0 to 9) */
     //png_set_compression_level(png_ptr, 9);
 
-    stride = width * 3;
-    color_type = PNG_COLOR_TYPE_RGB;
-    pixbuf = malloc(stride * height* 3);
+    if (__vin_format == V4L2_PIX_FMT_GREY)
+    {
+        stride = width;
+        color_type = PNG_COLOR_TYPE_GRAY;
+        pixbuf = (uint8_t *) data;
+    }
+    else
+    {
+        stride = width * 3;
+        color_type = PNG_COLOR_TYPE_RGB;
+        pixbuf = malloc(stride * height* 3);
 
-    if (__vin_format == V4L2_PIX_FMT_NV16)
-        nv16_to_rgb(data, pixbuf, width, height, s);
-    else if (__vin_format == V4L2_PIX_FMT_UYVY)
-        uyvy_to_rgb(data, pixbuf, width, height, s);
-    else if (__vin_format == V4L2_PIX_FMT_YUYV)
-        yuyv_to_rgb(data, pixbuf, width, height, s);
+        if (__vin_format == V4L2_PIX_FMT_NV16)
+            nv16_to_rgb(data, pixbuf, width, height, s);
+        else if (__vin_format == V4L2_PIX_FMT_UYVY)
+            uyvy_to_rgb(data, pixbuf, width, height, s);
+        else if (__vin_format == V4L2_PIX_FMT_YUYV)
+            yuyv_to_rgb(data, pixbuf, width, height, s);
+    }
 
     for (i = 0; i < height; i++)
         rows[i] = pixbuf + i * stride;
@@ -294,7 +304,10 @@ int store_png(const char *otp_id, int index ,int width, int height, int s, int f
     png_destroy_info_struct(png_ptr, &info_ptr);
     png_destroy_write_struct(&png_ptr, NULL);
 
-    free(pixbuf);
+    if (__vin_format != V4L2_PIX_FMT_GREY)
+    {
+        free(pixbuf);
+    }
     free(filename);
     fclose(fp);
 
@@ -304,7 +317,10 @@ error_png:
     /* ...destroy write structure */
     png_destroy_info_struct(png_ptr, &info_ptr);
     png_destroy_write_struct(&png_ptr, NULL);
-    free(pixbuf);
+    if (__vin_format != V4L2_PIX_FMT_GREY)
+    {
+        free(pixbuf);
+    }
 
 error:
     /* ...close file handle */
