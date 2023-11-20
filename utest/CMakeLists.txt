@@ -24,8 +24,7 @@ add_definitions(-DVERSION=\"${PROJECT_VERSION_STRING}\")
 if(CMAKE_BUILD_TOOL MATCHES "(msdev|devenv|nmake|MSBuild)")
     add_definitions("/W2")
 else()
-  #add_definitions("-Wall -Wextra -Werror -Wno-unused-parameter -Wno-unused-local-typedefs -Wno-unused-variable -Wno-unused-but-set-variable -Wno-strict-aliasing -pg")
-  add_definitions("-Wall -Wextra -Werror -Wno-unused-parameter -Wno-unused-local-typedefs -Wno-unused-variable -Wno-unused-but-set-variable -Wno-strict-aliasing")
+  add_definitions("-Wall -Wextra -Wno-unused-parameter -Werror -Wno-error=unused-result")
 endif()
 
 # ...add sources

@@ -321,8 +321,6 @@ static inline int vin_streaming_enable(int vfd, int enable)
 static inline int vin_allocate_buffers(int vfd, vin_buffer_t *pool, int num)
 {
     struct v4l2_requestbuffers  reqbuf;
-    struct v4l2_buffer          buf;
-    int                         j;
 
     /* ...all buffers are allocated by kernel */
     memset(&reqbuf, 0, sizeof(reqbuf));
@@ -742,8 +740,10 @@ int vin_device_init(vin_data_t *vin, int i, int w, int h, u32 fmt, int size)
         vin_buffer_t   *buf = &dev->pool[j];
         GstBuffer      *buffer;
         vin_meta_t     *meta;
+#if 0
         u32             size[GST_VIDEO_MAX_PLANES];
         int             n, k;
+#endif
 
         /* ...allocate empty GStreamer buffer */
         CHK_ERR(buf->buffer = buffer = gst_buffer_new(), -ENOMEM);

@@ -283,8 +283,8 @@ int __distorted_cfg_setup(camera_intrinsic_t *intrinsic,
     display_list_t *dl_left = imr_cfg_dl(cfg_left);
     display_list_t *dl_right = imr_cfg_dl(cfg_right);
     int columns, rows;
-    int x, y, dx, dy;
-    int i, j;
+    int y;
+    int i;
     int32_t dst_X_start, dst_Y_start, dst_X_end, dst_Y_end;
     dst_X_start = (x_start);
     dst_Y_start = (y_start);
@@ -303,8 +303,6 @@ int __distorted_cfg_setup(camera_intrinsic_t *intrinsic,
     {
         return 0;
     }
-
-    int n = (columns + 1) * 2;
 
     float tan_x_start = -tanf((hfov / 2.0) * M_PI / 180.0f);
     float tan_x_end = tanf((hfov / 2.0) * M_PI / 180.0f);

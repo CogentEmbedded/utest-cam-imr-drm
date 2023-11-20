@@ -120,7 +120,6 @@ static yaml_node_t * get_data(yaml_document_t *doc, yaml_node_t *v)
 {
     yaml_node_pair_t   *pair;
     yaml_node_t        *data = NULL;
-    int                 _r = -1, _c = -1;
 
 
     /* ...retrieve matrix parameters */
@@ -245,11 +244,8 @@ static int get_camera_intrinsic(camera_intrinsic_t *intrinsic, yaml_document_t *
 /* ...parse camera intrinsics parameters */
 static inline int parse_camera_intrinsics(camera_intrinsic_t *intrinsic, yaml_document_t *doc, yaml_node_t *root)
 {
-    yaml_node_pair_t   *pair;
-
     /* ...parse parameters */
     CHK_API(get_camera_intrinsic(intrinsic, doc, root));
-
 
     return 0;
 }

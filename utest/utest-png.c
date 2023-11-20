@@ -179,13 +179,12 @@ static __attribute__((noreturn))  void __write_error(png_structp png_ptr, png_co
 int store_png(const char *otp_id, int index ,int width, int height, int format, void *data)
 {
 	FILE                   *fp;
-	int                     y, stride = 0;
+	int                     stride = 0;
 	png_byte                color_type;
 	png_byte                bit_depth= 24;
 	png_structp             png_ptr;
 	png_infop               info_ptr;
 	jmp_buf                 jb;
-    int                     retval = 0;
     uint8_t                 *rows[height];
     int i;
 

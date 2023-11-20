@@ -375,9 +375,7 @@ static int imr_buffer_allocate(void *cdata, int i, GstBuffer *buffer)
 /* ...buffer preparation callback */
 static int imr_buffer_prepare(void *cdata, int i, GstBuffer *buffer)
 {
-    app_data_t     *app = cdata;
     imr_meta_t     *meta = gst_buffer_get_imr_meta(buffer);
-    vsp_mem_t      *mem = meta->priv;
     int             j = meta->index;
 
     /* ...sanity check */
@@ -399,8 +397,6 @@ static int imr_buffer_process(void *cdata, int i, GstBuffer *buffer)
 
     /* ...lock data access */
     pthread_mutex_lock(&app->lock);
-
-    static int __dump = 0;
 
     if (app->dump_png) {
 
@@ -458,8 +454,6 @@ static void app_redraw(display_data_t *display, void *data)
     {
         float           fps = window_frame_rate_update(window);
         int             i;
-        static char     fname[256];
-        imr_meta_t     *meta;
         GstBuffer     **buf = app->buf[app->bank];
 
         /* ...get buffers from output queue */

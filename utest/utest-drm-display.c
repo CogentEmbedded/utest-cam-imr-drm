@@ -412,7 +412,7 @@ static struct udev_device * find_drm(struct udev * udev, const char *seat_id)
         goto out;
     }
 
-    TRACE(ERROR, _b("no DRM found (seat-id = %s)"), seat_id);
+    TRACE(ERROR, _b("no DRM found (seat-id = %s)"), seat_id ? seat_id : "<NULL>");
 
 out:
     /* ...deallocate enumeration structure */
@@ -640,7 +640,6 @@ static int find_crtc(int fd, drmModeRes *resources, drmModeConnector *c)
 static int output_mode_supported(output_data_t *output, int width, int height)
 {
     int                 i;
-    drmModeModeInfo    *best = NULL;
 
     for (i = 0; i < output->modes_num; i++)
     {
@@ -1217,7 +1216,6 @@ static int libinput_input_event(display_data_t *display, display_source_cb_t *cb
     while ((ev = libinput_get_event(ctx)) != NULL)
     {
         enum libinput_event_type type = libinput_event_get_type(ev);
-        struct libinput_device *dev = libinput_event_get_device(ev);
 
         switch (type)
         {
@@ -1716,7 +1714,6 @@ void window_schedule_redraw(window_data_t *window)
 void window_draw(window_data_t *window)
 {
     display_data_t         *display = window->display;
-    output_data_t          *output = window->output;
     u32                     t0, t1;
 
     t0 = __get_time_usec();
@@ -1749,7 +1746,6 @@ display_data_t * display_create(const int support_stdin)
 {
     display_data_t     *display = &__display;
     pthread_attr_t      attr;
-    int                 r;
     struct udev_device *drm_device;
 
     /* ...reset display data */
@@ -2051,12 +2047,11 @@ int plane_setup(window_data_t *window, int i, texture_data_t *texture, texture_d
 {
     display_data_t         *display = window->display;
     output_data_t          *output = window->output;
-    int                     fd = display->fd;
     uint32_t                plane_id;
     uint32_t                x0, y0, w, h;
     uint32_t                X0, Y0, W, H;
     drmModeAtomicReqPtr     req;
-    u32                     t0, t1, t2, t3, t4;
+    u32                     t0, t1, t2, t3;
 
     t0 = __get_time_usec();
 
@@ -2067,9 +2062,6 @@ int plane_setup(window_data_t *window, int i, texture_data_t *texture, texture_d
     }
     else
     {
-        int        *p = *view;
-        int         i;
-
         x0 = texture_view_x0(view), y0 = texture_view_y0(view);
         w = texture_view_width(view), h = texture_view_height(view);
 
